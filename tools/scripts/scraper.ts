@@ -49,6 +49,8 @@ type Result<T> = { ok: true; data: T } | { ok: false; error: ErrorInfo };
 type Entry = z.infer<typeof EntrySchema>;
 type ErrorInfo = z.infer<typeof ErrorSchema>;
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const fetchUrl = async (url: string): Promise<Result<string>> => {
   try {
     console.log(`Making a request to ${url} ...`);
@@ -66,6 +68,7 @@ const fetchUrl = async (url: string): Promise<Result<string>> => {
         },
       };
     }
+
     console.log(`Successfully grabbed HTML from ${url}.`);
     const html = await response.text();
     return {
@@ -92,31 +95,45 @@ const fetchEntry = async (url: string): Promise<Result<Entry>> => {
     return fetched;
   }
 
-  const $ = cheerio.load(fetched.data);
-  const title = $("head meta[name='DC.title']").attr("content");
-  const authorNodes = $("head meta[name='DC.creator']");
-  const issued = $("head meta[name='DCTERMS.issued']").attr("content");
-  const modified = $("head meta[name='DCTERMS.modified']").attr("content");
-  const authors: string[] = [];
+  let parsed: ReturnType<typeof EntrySchema.safeParse>;
 
-  authorNodes.each((_, el) => {
-    const value = $(el).attr("content")?.trim();
-    if (value) {
-      authors.push(value);
-    }
-  });
+  try {
+    const $ = cheerio.load(fetched.data);
+    const title = $("head meta[name='DC.title']").attr("content");
+    const authorNodes = $("head meta[name='DC.creator']");
+    const issued = $("head meta[name='DCTERMS.issued']").attr("content");
+    const modified = $("head meta[name='DCTERMS.modified']").attr("content");
+    const authors: string[] = [];
 
-  const slug = url.split("entries/")[1]?.split("/")[0];
+    authorNodes.each((_, el) => {
+      const value = $(el).attr("content")?.trim();
+      if (value) {
+        authors.push(value);
+      }
+    });
 
-  const parsed = EntrySchema.safeParse({
-    slug,
-    title,
-    authors,
-    issued,
-    modified,
-    fetched_at: new Date().toISOString(),
-    source_url: url,
-  });
+    const slug = url.split("entries/")[1]?.split("/")[0];
+
+    parsed = EntrySchema.safeParse({
+      slug,
+      title,
+      authors,
+      issued,
+      modified,
+      fetched_at: new Date().toISOString(),
+      source_url: url,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        url,
+        stage: "extract",
+        message: err instanceof Error ? err.message : "Unknown extract error",
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
 
   if (!parsed.success) {
     console.log(`Failed to validate schema from ${url}.`);
@@ -130,6 +147,7 @@ const fetchEntry = async (url: string): Promise<Result<Entry>> => {
       },
     };
   }
+
   console.log(`Schema validated from ${url}.`);
   return {
     ok: true,
@@ -146,10 +164,12 @@ for (const url of testUrls) {
   if (!result.ok) {
     console.log(`Pushing ${url} to error array.`);
     errArray.push(result.error);
-    continue;
+  } else {
+    console.log(`Pushing ${url} to entries array.`);
+    finalJson.push(result.data);
   }
-  console.log(`Pushing ${url} to entries array.`);
-  finalJson.push(result.data);
+
+  await sleep(500);
 }
 
 const entryJson = JSON.stringify(finalJson, null, 2);
