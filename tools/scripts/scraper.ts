@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
+import supabase from "./utils/supabase";
 
 const testUrls: string[] = [
   "https://plato.stanford.edu/entries/abduction/",
@@ -38,7 +39,7 @@ const EntrySchema = z.object({
 
 const ErrorSchema = z.object({
   url: z.string(),
-  stage: z.enum(["fetch", "extract", "validation"]),
+  stage: z.enum(["fetch", "extract", "validation", "persist"]),
   message: z.string(),
   timestamp: z.iso.datetime(),
   status: z.number().optional(),
@@ -172,8 +173,84 @@ for (const url of testUrls) {
   await sleep(500);
 }
 
-const entryJson = JSON.stringify(finalJson, null, 2);
+for (const entry of finalJson) {
+  const entriesData = {
+    slug: entry.slug,
+    title: entry.title,
+    issued: entry.issued,
+    modified: entry.modified,
+    source_url: entry.source_url,
+    fetched_at: entry.fetched_at,
+  };
+
+  const { data: entryRow, error: entryError } = await supabase
+    .from("entries")
+    .upsert(entriesData, { onConflict: "slug" })
+    .select("id")
+    .single();
+
+  if (entryError || !entryRow) {
+    errArray.push({
+      url: entry.source_url,
+      stage: "persist",
+      message: entryError?.message ?? "Entry upsert returned no row",
+      timestamp: new Date().toISOString(),
+    });
+    continue;
+  }
+
+  const entryId = entryRow.id;
+
+  for (const [position, authorName] of entry.authors.entries()) {
+    const sortName = authorName
+      .replace(/[^\w\s\']|_/g, "")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+
+    const authorsData = {
+      display_name: authorName,
+      sort_name: sortName,
+    };
+    const { data: authorRow, error: authorError } = await supabase
+      .from("authors")
+      .upsert(authorsData, { onConflict: "display_name" })
+      .select("id")
+      .single();
+
+    if (authorError || !authorRow) {
+      errArray.push({
+        url: entry.source_url,
+        stage: "persist",
+        message:
+          authorError?.message ??
+          `Author upsert returned no row for ${authorName}`,
+        timestamp: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    const authorId = authorRow.id;
+
+    const joinData = {
+      entry_id: entryId,
+      author_id: authorId,
+      position,
+    };
+
+    const { error: joinError } = await supabase
+      .from("entry_authors")
+      .upsert(joinData, { onConflict: "entry_id,author_id" });
+
+    if (joinError) {
+      errArray.push({
+        url: entry.source_url,
+        stage: "persist",
+        message: joinError.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+}
 const errorJson = JSON.stringify(errArray, null, 2);
 
-fs.writeFileSync(path.join("../../data", "entries.json"), entryJson);
 fs.writeFileSync(path.join("../../data", "errors.json"), errorJson);
