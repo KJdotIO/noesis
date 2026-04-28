@@ -105,6 +105,44 @@ function findTextPosition(quote: string): number | undefined {
   return document.body?.innerText.indexOf(quote) ?? undefined;
 }
 
+function countOccurrences(text: string, quote: string): number {
+  if (!quote) {
+    return 0;
+  }
+
+  let count = 0;
+  let index = text.indexOf(quote);
+
+  while (index >= 0) {
+    count += 1;
+    index = text.indexOf(quote, index + quote.length);
+  }
+
+  return count;
+}
+
+function getSelectionAnchor(selection: Selection, quote: string) {
+  if (!document.body || selection.rangeCount === 0) {
+    return {};
+  }
+
+  const range = selection.getRangeAt(0);
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(document.body);
+  beforeRange.setEnd(range.startContainer, range.startOffset);
+
+  const before = beforeRange.toString();
+  const afterRange = document.createRange();
+  afterRange.selectNodeContents(document.body);
+  afterRange.setStart(range.endContainer, range.endOffset);
+
+  return {
+    occurrenceIndex: countOccurrences(before, quote),
+    prefix: before.slice(-80),
+    suffix: afterRange.toString().slice(0, 80),
+  };
+}
+
 function unwrapHighlight(mark: HTMLElement): void {
   mark.replaceWith(...mark.childNodes);
 }
@@ -160,14 +198,23 @@ function renderHighlight(highlight: GuestHighlight): boolean {
 
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode() as Text | null;
+  let seen = 0;
 
   while (node) {
     const parent = node.parentElement;
     if (!parent?.closest(".noesis-highlight, .noesis-selection-card")) {
-      const index = node.data.indexOf(highlight.quote);
-      if (index >= 0) {
-        highlightTextNode(node, index, highlight.quote.length, highlight);
-        return true;
+      let index = node.data.indexOf(highlight.quote);
+      while (index >= 0) {
+        if (
+          highlight.occurrenceIndex === undefined ||
+          seen === highlight.occurrenceIndex
+        ) {
+          highlightTextNode(node, index, highlight.quote.length, highlight);
+          return true;
+        }
+
+        seen += 1;
+        index = node.data.indexOf(highlight.quote, index + highlight.quote.length);
       }
     }
 
@@ -286,12 +333,14 @@ export default defineContentScript({
       }
 
       showSelectionCard(selection, (quote, note) => {
+        const anchor = getSelectionAnchor(selection, quote);
         void saveGuestHighlight({
           slug: entry.slug,
           quote,
           note,
           url: entry.url,
           textPosition: findTextPosition(quote),
+          ...anchor,
         }).then(renderHighlight);
       });
     });

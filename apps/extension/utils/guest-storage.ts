@@ -19,6 +19,9 @@ export type GuestHighlight = {
   note?: string;
   url: string;
   textPosition?: number;
+  occurrenceIndex?: number;
+  prefix?: string;
+  suffix?: string;
   createdAt: string;
   updatedAt: string;
 };
