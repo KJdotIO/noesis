@@ -46,6 +46,13 @@ async function getEntryFromTab(tab: Browser.tabs.Tab): Promise<SepEntryContext> 
   };
 }
 
+async function activatePageTools(tabId: number): Promise<void> {
+  await browser.scripting.executeScript({
+    target: { tabId },
+    files: ["/content-scripts/content.js"],
+  });
+}
+
 function App() {
   const [status, setStatus] = useState<SaveStatus>({
     type: "idle",
@@ -68,6 +75,7 @@ function App() {
 
       const entry = await getEntryFromTab(tab);
       const savedEntry = await saveGuestEntry(entry);
+      await activatePageTools(tab.id);
 
       setStatus({
         type: "success",

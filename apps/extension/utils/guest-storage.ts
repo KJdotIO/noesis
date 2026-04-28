@@ -17,6 +17,8 @@ export type GuestHighlight = {
   slug: string;
   quote: string;
   note?: string;
+  url: string;
+  textPosition?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -89,4 +91,32 @@ export async function saveGuestReadingPosition(
   const state = await readGuestState();
   state.readingPositions[position.slug] = position;
   await writeGuestState(state);
+}
+
+export async function getGuestHighlights(
+  slug: string,
+): Promise<GuestHighlight[]> {
+  const state = await readGuestState();
+  return state.highlights[slug] ?? [];
+}
+
+export async function saveGuestHighlight(
+  highlight: Omit<GuestHighlight, "id" | "createdAt" | "updatedAt">,
+): Promise<GuestHighlight> {
+  const state = await readGuestState();
+  const now = new Date().toISOString();
+  const savedHighlight = {
+    ...highlight,
+    id: crypto.randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  state.highlights[highlight.slug] = [
+    ...(state.highlights[highlight.slug] ?? []),
+    savedHighlight,
+  ];
+
+  await writeGuestState(state);
+  return savedHighlight;
 }
