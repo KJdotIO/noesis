@@ -10,6 +10,12 @@ import type { GuestHighlight } from "../utils/guest-storage";
 import type { NoesisMessage, SaveEntryResponse } from "../utils/messages";
 import { getSepEntryContext } from "../utils/sep";
 
+type SelectionAnchor = {
+  occurrenceIndex?: number;
+  prefix?: string;
+  suffix?: string;
+};
+
 function getScrollRatio(): number {
   const maxScroll =
     document.documentElement.scrollHeight - window.innerHeight;
@@ -29,6 +35,10 @@ function injectHighlightStyles(): void {
       background: #fff3a3;
       border-radius: 2px;
       box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+    }
+
+    ::highlight(noesis-pending) {
+      background: #bfdbfe;
     }
 
     .noesis-selection-card {
@@ -143,6 +153,33 @@ function getSelectionAnchor(selection: Selection, quote: string) {
   };
 }
 
+function setPendingSelection(range: Range): void {
+  const highlightApi = CSS as unknown as {
+    highlights?: {
+      set: (name: string, highlight: unknown) => void;
+    };
+  };
+  const highlightCtor = globalThis as unknown as {
+    Highlight?: new (range: Range) => unknown;
+  };
+
+  if (!highlightApi.highlights || !highlightCtor.Highlight) {
+    return;
+  }
+
+  highlightApi.highlights.set("noesis-pending", new highlightCtor.Highlight(range));
+}
+
+function clearPendingSelection(): void {
+  const highlightApi = CSS as unknown as {
+    highlights?: {
+      delete: (name: string) => void;
+    };
+  };
+
+  highlightApi.highlights?.delete("noesis-pending");
+}
+
 function unwrapHighlight(mark: HTMLElement): void {
   mark.replaceWith(...mark.childNodes);
 }
@@ -226,11 +263,12 @@ function renderHighlight(highlight: GuestHighlight): boolean {
 
 function clearSelectionCard(): void {
   document.querySelector(".noesis-selection-card")?.remove();
+  clearPendingSelection();
 }
 
 function showSelectionCard(
   selection: Selection,
-  onSave: (quote: string, note?: string) => void,
+  onSave: (quote: string, note: string | undefined, anchor: SelectionAnchor) => void,
 ): void {
   clearSelectionCard();
 
@@ -239,7 +277,12 @@ function showSelectionCard(
     return;
   }
 
-  const rect = selection.getRangeAt(0).getBoundingClientRect();
+  const range = selection.getRangeAt(0).cloneRange();
+  const rect = range.getBoundingClientRect();
+  const anchor = getSelectionAnchor(selection, quote);
+  setPendingSelection(range);
+  selection.removeAllRanges();
+
   const card = document.createElement("form");
   card.className = "noesis-selection-card";
   card.style.left = `${Math.max(12, rect.left + window.scrollX)}px`;
@@ -253,19 +296,26 @@ function showSelectionCard(
     </div>
   `;
 
+  card.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+
+  card.addEventListener("mouseup", (event) => {
+    event.stopPropagation();
+  });
+
   card.addEventListener("click", (event) => {
+    event.stopPropagation();
     if ((event.target as HTMLElement).dataset.action === "cancel") {
       clearSelectionCard();
-      selection.removeAllRanges();
     }
   });
 
   card.addEventListener("submit", (event) => {
     event.preventDefault();
     const note = new FormData(card).get("note")?.toString().trim();
-    onSave(quote, note || undefined);
+    onSave(quote, note || undefined, anchor);
     clearSelectionCard();
-    selection.removeAllRanges();
   });
 
   document.body.append(card);
@@ -326,14 +376,23 @@ export default defineContentScript({
       },
     );
 
-    document.addEventListener("mouseup", () => {
+    document.addEventListener("pointerdown", (event) => {
+      if (!(event.target as HTMLElement).closest(".noesis-selection-card")) {
+        clearSelectionCard();
+      }
+    });
+
+    document.addEventListener("mouseup", (event) => {
+      if ((event.target as HTMLElement).closest(".noesis-selection-card")) {
+        return;
+      }
+
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
         return;
       }
 
-      showSelectionCard(selection, (quote, note) => {
-        const anchor = getSelectionAnchor(selection, quote);
+      showSelectionCard(selection, (quote, note, anchor) => {
         void saveGuestHighlight({
           slug: entry.slug,
           quote,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { readGuestState, saveGuestEntry } from "../../utils/guest-storage";
+import type { GuestHighlight } from "../../utils/guest-storage";
 import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
 import "./App.css";
 
@@ -17,7 +18,7 @@ type PageState =
       supported: true;
       entry: SepEntryContext;
       saved: boolean;
-      highlightCount: number;
+      highlights: GuestHighlight[];
       progress: number | null;
     };
 
@@ -96,7 +97,7 @@ function App() {
         supported: true,
         entry,
         saved: Boolean(guestState.savedEntries[entry.slug]),
-        highlightCount: guestState.highlights[entry.slug]?.length ?? 0,
+        highlights: guestState.highlights[entry.slug] ?? [],
         progress: position ? Math.round(position.scrollRatio * 100) : null,
       });
       setStatus({ type: "idle", message: "Ready." });
@@ -162,7 +163,10 @@ function App() {
       {pageState.supported ? (
         <section className="summary">
           <span>{pageState.saved ? "Saved" : "Not saved yet"}</span>
-          <span>{pageState.highlightCount} highlights</span>
+          <span>
+            {pageState.highlights.length}{" "}
+            {pageState.highlights.length === 1 ? "highlight" : "highlights"}
+          </span>
           <span>
             {pageState.progress === null
               ? "No progress yet"
@@ -181,6 +185,19 @@ function App() {
           ? "Save again"
           : "Save current entry"}
       </button>
+      {pageState.supported && pageState.highlights.length > 0 ? (
+        <section className="highlights">
+          <h2>Saved highlights</h2>
+          <ul>
+            {pageState.highlights.slice(0, 3).map((highlight) => (
+              <li key={highlight.id}>
+                <q>{highlight.quote}</q>
+                {highlight.note ? <p>{highlight.note}</p> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <p className={`status status-${status.type}`}>{status.message}</p>
     </main>
   );
