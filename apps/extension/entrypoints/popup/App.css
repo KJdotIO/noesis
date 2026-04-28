@@ -41,6 +41,25 @@ button {
   width: 100%;
 }
 
+button:disabled {
+  background: #d1d5db;
+  cursor: not-allowed;
+}
+
+.summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.summary span {
+  background: #f3f4f6;
+  border-radius: 8px;
+  color: #374151;
+  font-size: 0.85rem;
+  padding: 8px 10px;
+}
+
 .status {
   color: #4b5563;
   font-size: 0.85rem;
