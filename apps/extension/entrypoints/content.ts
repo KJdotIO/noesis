@@ -233,6 +233,19 @@ function setHighlightsVisible(visible: boolean): void {
   document.documentElement.classList.toggle("noesis-highlights-hidden", !visible);
 }
 
+function scrollToHighlight(highlightId: string): void {
+  const mark = document.querySelector<HTMLElement>(
+    `.noesis-highlight[data-noesis-highlight-id="${CSS.escape(highlightId)}"]`,
+  );
+
+  if (!mark) {
+    return;
+  }
+
+  mark.scrollIntoView({ behavior: "smooth", block: "center" });
+  mark.click();
+}
+
 function unwrapHighlight(mark: HTMLElement): void {
   mark.replaceWith(...mark.childNodes);
 }
@@ -440,6 +453,11 @@ export default defineContentScript({
       (message: NoesisMessage): Promise<SaveEntryResponse> | undefined => {
         if (message.type === "noesis:set-highlights-visible") {
           setHighlightsVisible(message.visible);
+          return undefined;
+        }
+
+        if (message.type === "noesis:scroll-to-highlight") {
+          scrollToHighlight(message.highlightId);
           return undefined;
         }
 

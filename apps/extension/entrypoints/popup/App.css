@@ -105,6 +105,21 @@ button:disabled {
   margin: 6px 0 0;
 }
 
+.highlight-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.highlight-actions button {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  color: #171717;
+  font-size: 0.78rem;
+  margin: 0;
+  padding: 6px 8px;
+}
+
 .status {
   color: #4b5563;
   font-size: 0.85rem;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  deleteGuestHighlight,
   readGuestState,
   saveGuestEntry,
   updateGuestSettings,
@@ -191,6 +192,41 @@ function App() {
     }
   }
 
+  async function deleteHighlight(highlight: GuestHighlight) {
+    if (!pageState.supported) {
+      return;
+    }
+
+    await deleteGuestHighlight(pageState.entry.slug, highlight.id);
+    await loadPageState();
+    setStatus({ type: "success", message: "Highlight deleted." });
+  }
+
+  async function jumpToHighlight(highlight: GuestHighlight) {
+    if (!pageState.supported) {
+      return;
+    }
+
+    const [tab] = await browser.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+
+    if (!tab?.id) {
+      setStatus({ type: "error", message: "No active tab found." });
+      return;
+    }
+
+    await activatePageTools(tab.id);
+    await browser.tabs
+      .sendMessage(tab.id, {
+        type: "noesis:scroll-to-highlight",
+        highlightId: highlight.id,
+      })
+      .catch(() => undefined);
+    setStatus({ type: "idle", message: "Jumped to highlight." });
+  }
+
   return (
     <main className="popup">
       <p className="eyebrow">Noesis</p>
@@ -239,6 +275,14 @@ function App() {
               <li key={highlight.id}>
                 <q>{highlight.quote}</q>
                 {highlight.note ? <p>{highlight.note}</p> : null}
+                <div className="highlight-actions">
+                  <button type="button" onClick={() => jumpToHighlight(highlight)}>
+                    Jump
+                  </button>
+                  <button type="button" onClick={() => deleteHighlight(highlight)}>
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

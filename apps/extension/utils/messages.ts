@@ -9,6 +9,11 @@ export type SetHighlightsVisibleMessage = {
   visible: boolean;
 };
 
+export type ScrollToHighlightMessage = {
+  type: "noesis:scroll-to-highlight";
+  highlightId: string;
+};
+
 export type SaveEntryResponse =
   | {
       ok: true;
@@ -19,4 +24,7 @@ export type SaveEntryResponse =
       error: string;
     };
 
-export type NoesisMessage = SaveEntryMessage | SetHighlightsVisibleMessage;
+export type NoesisMessage =
+  | SaveEntryMessage
+  | SetHighlightsVisibleMessage
+  | ScrollToHighlightMessage;
