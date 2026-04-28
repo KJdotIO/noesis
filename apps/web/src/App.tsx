@@ -249,6 +249,23 @@ function LibraryView({
   userEmail,
   onSignOut,
 }: LibraryViewProps) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleEntries = normalizedQuery
+    ? entries.filter((entry) =>
+        [entry.title, entry.entry_slug].some((value) =>
+          value.toLowerCase().includes(normalizedQuery),
+        ),
+      )
+    : entries;
+  const visibleHighlights = normalizedQuery
+    ? highlights.filter((highlight) =>
+        [highlight.quote, highlight.note ?? "", highlight.entry_slug].some(
+          (value) => value.toLowerCase().includes(normalizedQuery),
+        ),
+      )
+    : highlights;
+
   return (
     <section className="library-layout">
       <aside className="library-rail">
@@ -289,20 +306,35 @@ function LibraryView({
           </p>
         </header>
 
+        <div className="library-search">
+          <label htmlFor="library-search">Search library</label>
+          <input
+            id="library-search"
+            type="search"
+            placeholder="Search entries, highlights, or notes"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+
         <div className="dashboard">
           <section className="panel">
             <div className="section-heading">
               <h2>Saved entries</h2>
-              <span>{entries.length} total</span>
+              <span>{visibleEntries.length} shown</span>
             </div>
-            {entries.length === 0 ? (
+            {visibleEntries.length === 0 ? (
               <EmptyState
-                title="No entries synced yet"
-                description="Save an SEP entry from the extension, then sync local data from the popup."
+                title={query ? "No matching entries" : "No entries synced yet"}
+                description={
+                  query
+                    ? "Try a different title, slug, or note phrase."
+                    : "Save an SEP entry from the extension, then sync account data from the popup."
+                }
               />
             ) : (
               <ul className="entry-list">
-                {entries.map((entry) => (
+                {visibleEntries.map((entry) => (
                   <li key={entry.entry_slug}>
                     <a href={entry.source_url}>{entry.title}</a>
                     <span>{new Date(entry.saved_at).toLocaleDateString()}</span>
@@ -314,16 +346,20 @@ function LibraryView({
           <section className="panel">
             <div className="section-heading">
               <h2>Recent highlights</h2>
-              <span>{highlights.length} total</span>
+              <span>{visibleHighlights.length} shown</span>
             </div>
-            {highlights.length === 0 ? (
+            {visibleHighlights.length === 0 ? (
               <EmptyState
-                title="No highlights synced yet"
-                description="Highlight text in a SEP entry, add an optional note, and sync from the extension."
+                title={query ? "No matching highlights" : "No highlights synced yet"}
+                description={
+                  query
+                    ? "Search includes highlight text, notes, and entry slugs."
+                    : "Highlight text in a SEP entry, add an optional note, and sync from the extension."
+                }
               />
             ) : (
               <ul className="highlight-list">
-                {highlights.map((highlight) => (
+                {visibleHighlights.map((highlight) => (
                   <li key={highlight.id}>
                     <q>{highlight.quote}</q>
                     {highlight.note ? <p>{highlight.note}</p> : null}

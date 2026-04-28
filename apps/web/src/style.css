@@ -71,6 +71,10 @@ input {
   width: 100%;
 }
 
+input[type="search"] {
+  appearance: none;
+}
+
 .shell {
   min-height: 100dvh;
 }
@@ -117,6 +121,26 @@ input {
 .dashboard {
   display: grid;
   gap: 24px;
+}
+
+.library-search {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 24px;
+  max-width: 560px;
+}
+
+.library-search label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.library-search input {
+  box-shadow: 0 10px 30px color-mix(in oklch, var(--text) 6%, transparent);
+  min-height: 48px;
 }
 
 .auth {

@@ -8,7 +8,7 @@ import {
 import type { GuestHighlight, HighlightColor } from "../../utils/guest-storage";
 import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
 import { getSupabaseClient, hasSupabaseConfig } from "../../utils/supabase";
-import { syncGuestStateToSupabase, type SyncSummary } from "../../utils/sync";
+import { syncGuestStateWithSupabase, type SyncSummary } from "../../utils/sync";
 import "./App.css";
 
 type SaveStatus =
@@ -374,7 +374,7 @@ function App() {
     }
 
     try {
-      const syncSummary = await syncGuestStateToSupabase(
+      const syncSummary = await syncGuestStateWithSupabase(
         supabase,
         data.user,
         guestState,
@@ -383,7 +383,7 @@ function App() {
         type: "signed-in",
         email: data.user.email ?? authState.email,
         syncSummary,
-        message: "Local data synced to your account.",
+        message: "Account and local library are in sync.",
       });
     } catch (error) {
       setAuthState({
@@ -474,9 +474,9 @@ function App() {
             <p>{authState.message}</p>
             {authState.syncSummary ? (
               <p>
-                Synced {authState.syncSummary.savedEntries} entries,{" "}
-                {authState.syncSummary.highlights} highlights, and{" "}
-                {authState.syncSummary.readingPositions} reading positions.
+                Pushed {authState.syncSummary.savedEntries} entries,{" "}
+                {authState.syncSummary.highlights} highlights, and pulled{" "}
+                {authState.syncSummary.pulledEntries ?? 0} account entries.
               </p>
             ) : null}
             <button
@@ -484,7 +484,7 @@ function App() {
               type="button"
               onClick={syncLocalData}
             >
-              Sync local data
+              Sync account data
             </button>
             <button className="text-button" type="button" onClick={signOut}>
               Sign out {authState.email}
