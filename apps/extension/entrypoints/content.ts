@@ -250,8 +250,12 @@ function unwrapHighlight(mark: HTMLElement): void {
   mark.replaceWith(...mark.childNodes);
 }
 
-function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
+function clearHighlightCard(): void {
   document.querySelector(".noesis-highlight-card")?.remove();
+}
+
+function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
+  clearHighlightCard();
 
   const rect = mark.getBoundingClientRect();
   const card = document.createElement("div");
@@ -264,6 +268,10 @@ function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.textContent = "Delete highlight";
+
+  card.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
 
   deleteButton.addEventListener("click", () => {
     void deleteGuestHighlight(highlight.slug, highlight.id).then(() => {
@@ -480,8 +488,17 @@ export default defineContentScript({
     );
 
     document.addEventListener("pointerdown", (event) => {
-      if (!(event.target as HTMLElement).closest(".noesis-selection-card")) {
+      const target = event.target as HTMLElement;
+
+      if (!target.closest(".noesis-selection-card")) {
         clearSelectionCard();
+      }
+
+      if (
+        !target.closest(".noesis-highlight-card") &&
+        !target.closest(".noesis-highlight")
+      ) {
+        clearHighlightCard();
       }
     });
 
