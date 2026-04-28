@@ -1,0 +1,140 @@
+:root {
+  color: #171717;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  background: #f7f4ee;
+  margin: 0;
+}
+
+a {
+  color: #5b21b6;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  background: #171717;
+  border: 0;
+  border-radius: 10px;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+input {
+  border: 1px solid #d6d3d1;
+  border-radius: 10px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.shell {
+  margin: 0 auto;
+  max-width: 1080px;
+  padding: 48px 24px;
+}
+
+.hero {
+  margin-bottom: 28px;
+  max-width: 760px;
+}
+
+.eyebrow {
+  color: #6a5acd;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 6vw, 4.5rem);
+  letter-spacing: -0.06em;
+  line-height: 0.95;
+  margin: 0;
+}
+
+.hero p {
+  color: #57534e;
+  font-size: 1.1rem;
+  margin: 18px 0 0;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
+  border-radius: 22px;
+  box-shadow: 0 16px 45px rgba(23, 23, 23, 0.06);
+  padding: 24px;
+}
+
+.panel h2 {
+  margin: 0 0 14px;
+}
+
+.dashboard {
+  display: grid;
+  gap: 18px;
+}
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.toolbar span {
+  color: #57534e;
+}
+
+.toolbar button {
+  background: #ffffff;
+  color: #171717;
+}
+
+.auth {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.entry-list,
+.highlight-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entry-list li,
+.highlight-list li {
+  background: #fafaf9;
+  border-radius: 14px;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.entry-list span,
+.highlight-list p {
+  color: #78716c;
+  margin: 0;
+}
+
+.highlight-list q {
+  color: #292524;
+}

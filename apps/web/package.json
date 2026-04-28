@@ -1,0 +1,24 @@
+{
+  "name": "noesis-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "compile": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "vite": "^7.3.1",
+    "typescript": "^5.9.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3"
+  }
+}
