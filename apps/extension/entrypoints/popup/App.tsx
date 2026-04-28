@@ -7,6 +7,7 @@ import {
 } from "../../utils/guest-storage";
 import type { GuestHighlight, HighlightColor } from "../../utils/guest-storage";
 import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
+import { getSupabaseClient, hasSupabaseConfig } from "../../utils/supabase";
 import "./App.css";
 
 type SaveStatus =
@@ -28,6 +29,12 @@ type PageState =
       defaultHighlightColor: HighlightColor;
       progress: number | null;
     };
+
+type AuthState =
+  | { type: "missing-config" }
+  | { type: "signed-out"; email: string; message: string }
+  | { type: "sent"; email: string; message: string }
+  | { type: "error"; email: string; message: string };
 
 async function getEntryFromTab(tab: Browser.tabs.Tab): Promise<SepEntryContext> {
   if (!tab.id) {
@@ -83,6 +90,15 @@ function App() {
     supported: false,
     message: "Checking current tab...",
   });
+  const [authState, setAuthState] = useState<AuthState>(
+    hasSupabaseConfig()
+      ? {
+          type: "signed-out",
+          email: "",
+          message: "Optional: send a magic link to prepare account sync.",
+        }
+      : { type: "missing-config" },
+  );
 
   async function loadPageState() {
     const [tab] = await browser.tabs.query({
@@ -227,6 +243,43 @@ function App() {
     setStatus({ type: "idle", message: "Jumped to highlight." });
   }
 
+  async function sendMagicLink() {
+    if (authState.type === "missing-config") {
+      return;
+    }
+
+    const email = authState.email.trim();
+    if (!email) {
+      setAuthState({
+        type: "error",
+        email,
+        message: "Enter an email address first.",
+      });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setAuthState({ type: "missing-config" });
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+    });
+
+    if (error) {
+      setAuthState({ type: "error", email, message: error.message });
+      return;
+    }
+
+    setAuthState({
+      type: "sent",
+      email,
+      message: "Magic link sent. Sync migration comes next.",
+    });
+  }
+
   return (
     <main className="popup">
       <p className="eyebrow">Noesis</p>
@@ -288,6 +341,35 @@ function App() {
           </ul>
         </section>
       ) : null}
+      <section className="auth-panel">
+        <h2>Account sync</h2>
+        {authState.type === "missing-config" ? (
+          <p>Supabase env vars are not configured yet.</p>
+        ) : (
+          <>
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={authState.email}
+              onChange={(event) =>
+                setAuthState({
+                  type: "signed-out",
+                  email: event.target.value,
+                  message: "Optional: send a magic link to prepare account sync.",
+                })
+              }
+            />
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={sendMagicLink}
+            >
+              Send magic link
+            </button>
+            <p>{authState.message}</p>
+          </>
+        )}
+      </section>
       <p className={`status status-${status.type}`}>{status.message}</p>
     </main>
   );

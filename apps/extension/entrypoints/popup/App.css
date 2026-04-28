@@ -105,6 +105,33 @@ button:disabled {
   margin: 6px 0 0;
 }
 
+.auth-panel {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 16px;
+  padding-top: 14px;
+}
+
+.auth-panel h2 {
+  color: #171717;
+  font-size: 0.9rem;
+  margin: 0 0 8px;
+}
+
+.auth-panel input {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.auth-panel p {
+  color: #6b7280;
+  font-size: 0.82rem;
+  margin: 8px 0 0;
+}
+
 .highlight-actions {
   display: flex;
   gap: 8px;
