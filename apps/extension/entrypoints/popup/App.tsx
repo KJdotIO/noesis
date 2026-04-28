@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { readGuestState, saveGuestEntry } from "../../utils/guest-storage";
-import type { GuestHighlight } from "../../utils/guest-storage";
+import {
+  readGuestState,
+  saveGuestEntry,
+  updateGuestSettings,
+} from "../../utils/guest-storage";
+import type { GuestHighlight, HighlightColor } from "../../utils/guest-storage";
 import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
 import "./App.css";
 
@@ -19,6 +23,8 @@ type PageState =
       entry: SepEntryContext;
       saved: boolean;
       highlights: GuestHighlight[];
+      highlightsVisible: boolean;
+      defaultHighlightColor: HighlightColor;
       progress: number | null;
     };
 
@@ -98,6 +104,8 @@ function App() {
         entry,
         saved: Boolean(guestState.savedEntries[entry.slug]),
         highlights: guestState.highlights[entry.slug] ?? [],
+        highlightsVisible: guestState.settings.highlightsVisible,
+        defaultHighlightColor: guestState.settings.defaultHighlightColor,
         progress: position ? Math.round(position.scrollRatio * 100) : null,
       });
       setStatus({ type: "idle", message: "Ready." });
@@ -154,6 +162,35 @@ function App() {
     }
   }
 
+  async function toggleHighlightsVisible() {
+    if (!pageState.supported) {
+      return;
+    }
+
+    const nextVisible = !pageState.highlightsVisible;
+    const settings = await updateGuestSettings({
+      highlightsVisible: nextVisible,
+    });
+    setPageState({
+      ...pageState,
+      highlightsVisible: settings.highlightsVisible,
+    });
+
+    const [tab] = await browser.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+
+    if (tab?.id) {
+      await browser.tabs
+        .sendMessage(tab.id, {
+          type: "noesis:set-highlights-visible",
+          visible: settings.highlightsVisible,
+        })
+        .catch(() => undefined);
+    }
+  }
+
   return (
     <main className="popup">
       <p className="eyebrow">Noesis</p>
@@ -176,6 +213,15 @@ function App() {
       ) : (
         <p className="description">{pageState.message}</p>
       )}
+      {pageState.supported ? (
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={toggleHighlightsVisible}
+        >
+          {pageState.highlightsVisible ? "Hide highlights" : "Show highlights"}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={saveCurrentEntry}

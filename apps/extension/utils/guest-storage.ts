@@ -18,6 +18,7 @@ export type GuestHighlight = {
   quote: string;
   note?: string;
   url: string;
+  color?: HighlightColor;
   textPosition?: number;
   occurrenceIndex?: number;
   prefix?: string;
@@ -26,11 +27,19 @@ export type GuestHighlight = {
   updatedAt: string;
 };
 
+export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
+
+export type GuestSettings = {
+  highlightsVisible: boolean;
+  defaultHighlightColor: HighlightColor;
+};
+
 export type GuestState = {
   version: 1;
   savedEntries: Record<string, GuestSavedEntry>;
   readingPositions: Record<string, GuestReadingPosition>;
   highlights: Record<string, GuestHighlight[]>;
+  settings: GuestSettings;
 };
 
 const guestStateKey = "noesis:guest-state";
@@ -40,6 +49,10 @@ const emptyGuestState = (): GuestState => ({
   savedEntries: {},
   readingPositions: {},
   highlights: {},
+  settings: {
+    highlightsVisible: true,
+    defaultHighlightColor: "yellow",
+  },
 });
 
 export async function readGuestState(): Promise<GuestState> {
@@ -52,6 +65,10 @@ export async function readGuestState(): Promise<GuestState> {
     savedEntries: state?.savedEntries ?? {},
     readingPositions: state?.readingPositions ?? {},
     highlights: state?.highlights ?? {},
+    settings: {
+      ...emptyGuestState().settings,
+      ...state?.settings,
+    },
   };
 }
 
@@ -133,4 +150,16 @@ export async function deleteGuestHighlight(
     (highlight) => highlight.id !== highlightId,
   );
   await writeGuestState(state);
+}
+
+export async function updateGuestSettings(
+  settings: Partial<GuestSettings>,
+): Promise<GuestSettings> {
+  const state = await readGuestState();
+  state.settings = {
+    ...state.settings,
+    ...settings,
+  };
+  await writeGuestState(state);
+  return state.settings;
 }

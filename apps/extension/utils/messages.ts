@@ -4,6 +4,11 @@ export type SaveEntryMessage = {
   type: "noesis:save-entry";
 };
 
+export type SetHighlightsVisibleMessage = {
+  type: "noesis:set-highlights-visible";
+  visible: boolean;
+};
+
 export type SaveEntryResponse =
   | {
       ok: true;
@@ -14,4 +19,4 @@ export type SaveEntryResponse =
       error: string;
     };
 
-export type NoesisMessage = SaveEntryMessage;
+export type NoesisMessage = SaveEntryMessage | SetHighlightsVisibleMessage;
