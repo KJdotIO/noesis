@@ -19,11 +19,11 @@ type SelectionAnchor = {
 };
 
 const highlightColors: Record<HighlightColor, string> = {
-  yellow: "#fff3a3",
-  green: "#bbf7d0",
-  blue: "#bfdbfe",
-  pink: "#fbcfe8",
-  purple: "#ddd6fe",
+  yellow: "oklch(90% 0.055 103)",
+  green: "oklch(88% 0.06 145)",
+  blue: "oklch(88% 0.045 235)",
+  pink: "oklch(89% 0.055 15)",
+  purple: "oklch(88% 0.045 300)",
 };
 
 function getScrollRatio(): number {
@@ -44,7 +44,7 @@ function injectHighlightStyles(): void {
     .noesis-highlight {
       background: var(--noesis-highlight-color, #fff3a3);
       border-radius: 2px;
-      box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+      box-shadow: 0 0 0 1px color-mix(in oklch, var(--noesis-highlight-color) 70%, oklch(19% 0.018 75));
     }
 
     .noesis-highlights-hidden .noesis-highlight {
@@ -57,21 +57,24 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-selection-card {
-      background: #171717;
-      border-radius: 10px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
-      color: #ffffff;
+      background: oklch(19% 0.018 75);
+      border: 1px solid oklch(32% 0.018 75);
+      border-radius: 12px;
+      box-shadow: 0 18px 44px color-mix(in oklch, oklch(19% 0.018 75) 28%, transparent);
+      color: oklch(99% 0.006 82);
       font: 13px system-ui, sans-serif;
-      padding: 10px;
+      padding: 12px;
       position: absolute;
-      width: 220px;
+      width: 236px;
       z-index: 2147483647;
     }
 
     .noesis-selection-card textarea {
-      border: 0;
-      border-radius: 6px;
+      background: oklch(99% 0.006 82);
+      border: 1px solid oklch(88% 0.018 82);
+      border-radius: 8px;
       box-sizing: border-box;
+      color: oklch(19% 0.018 75);
       font: inherit;
       margin: 8px 0;
       min-height: 58px;
@@ -114,8 +117,8 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-color-options input:checked + .noesis-color-swatch {
-      border-color: #ffffff;
-      box-shadow: 0 0 0 2px #171717;
+      border-color: oklch(99% 0.006 82);
+      box-shadow: 0 0 0 2px oklch(19% 0.018 75);
     }
 
     .noesis-selection-card button {
@@ -128,14 +131,14 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-highlight-card {
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
-      color: #171717;
+      background: oklch(99% 0.006 82);
+      border: 1px solid oklch(88% 0.018 82);
+      border-radius: 12px;
+      box-shadow: 0 18px 44px color-mix(in oklch, oklch(19% 0.018 75) 18%, transparent);
+      color: oklch(19% 0.018 75);
       font: 13px system-ui, sans-serif;
-      max-width: 260px;
-      padding: 10px;
+      max-width: 280px;
+      padding: 12px;
       position: absolute;
       z-index: 2147483647;
     }
@@ -145,9 +148,11 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-highlight-card textarea {
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
+      background: oklch(96% 0.012 82);
+      border: 1px solid oklch(88% 0.018 82);
+      border-radius: 8px;
       box-sizing: border-box;
+      color: oklch(19% 0.018 75);
       font: inherit;
       margin: 8px 0;
       min-height: 64px;
@@ -172,21 +177,21 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-highlight-card-actions button:first-child {
-      background: #f3f4f6;
-      color: #171717;
+      background: oklch(96% 0.012 82);
+      color: oklch(19% 0.018 75);
     }
 
     .noesis-highlight-card-actions button:last-child {
-      background: #fee2e2;
-      color: #991b1b;
+      background: oklch(94% 0.04 28);
+      color: oklch(48% 0.13 28);
     }
 
     .noesis-anchor-warning {
-      background: #fff7ed;
-      border: 1px solid #fed7aa;
-      border-radius: 10px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
-      color: #7c2d12;
+      background: oklch(98% 0.02 55);
+      border: 1px solid oklch(88% 0.08 55);
+      border-radius: 12px;
+      box-shadow: 0 18px 44px color-mix(in oklch, oklch(19% 0.018 75) 14%, transparent);
+      color: oklch(35% 0.09 55);
       font: 13px system-ui, sans-serif;
       max-width: 320px;
       padding: 10px 12px;
@@ -204,7 +209,7 @@ function injectHighlightStyles(): void {
     .noesis-anchor-warning button {
       background: transparent;
       border: 0;
-      color: #9a3412;
+      color: oklch(42% 0.078 103);
       cursor: pointer;
       font: inherit;
       font-weight: 700;

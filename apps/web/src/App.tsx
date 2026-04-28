@@ -157,35 +157,152 @@ function App() {
 
   return (
     <main className="shell">
-      <section className="hero">
-        <p className="eyebrow">Noesis Library</p>
-        <h1>Your SEP reading trail, synced from the extension.</h1>
-        <p>
-          Review saved entries and recent highlights without replacing the
-          canonical Stanford Encyclopedia of Philosophy reading experience.
-        </p>
-      </section>
-
       {state.type === "missing-config" ? (
-        <section className="panel">
-          <h2>Configuration needed</h2>
-          <p>Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to use the web library.</p>
-        </section>
+        <CenteredPanel
+          eyebrow="Noesis Library"
+          title="Configuration needed"
+          description="Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to use the web library."
+        />
       ) : state.type === "ready" ? (
-        <section className="dashboard">
-          <div className="toolbar">
-            <span>Signed in as {state.user.email}</span>
-            <button type="button" onClick={signOut}>
-              Sign out
-            </button>
+        <LibraryView
+          entries={state.entries}
+          highlights={state.highlights}
+          userEmail={state.user.email ?? "reader"}
+          onSignOut={signOut}
+        />
+      ) : state.type === "loading" ? (
+        <LoadingLibrary userEmail={state.user.email ?? "reader"} />
+      ) : (
+        <section className="auth-layout">
+          <div className="auth-copy">
+            <p className="eyebrow">Noesis Library</p>
+            <h1>Return to your reading trail.</h1>
+            <p>
+              Sign in with the same email you used in the extension to review
+              synced SEP entries and highlights.
+            </p>
           </div>
+          <form
+            className="panel auth"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (state.type === "code-sent") {
+                void verifyCode();
+                return;
+              }
+              void sendCode();
+            }}
+          >
+            <h2>Sign in</h2>
+            <label htmlFor="email">Email address</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="reader@example.com"
+              value={state.email}
+              onChange={(event) =>
+                setState({
+                  type: "signed-out",
+                  email: event.target.value,
+                  message: "Sign in to view your synced Noesis library.",
+                })
+              }
+            />
+            <button type="button" onClick={sendCode}>
+              Send verification code
+            </button>
+            {state.type === "code-sent" ? (
+              <>
+                <label htmlFor="token">Verification code</label>
+                <input
+                  id="token"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={state.token}
+                  onChange={(event) =>
+                    setState({ ...state, token: event.target.value })
+                  }
+                />
+                <button type="submit">Verify code</button>
+              </>
+            ) : null}
+            <p className={state.type === "error" ? "form-message error" : "form-message"}>
+              {state.message}
+            </p>
+          </form>
+        </section>
+      )}
+    </main>
+  );
+}
+
+type LibraryViewProps = {
+  entries: SavedEntry[];
+  highlights: Highlight[];
+  userEmail: string;
+  onSignOut: () => void;
+};
+
+function LibraryView({
+  entries,
+  highlights,
+  userEmail,
+  onSignOut,
+}: LibraryViewProps) {
+  return (
+    <section className="library-layout">
+      <aside className="library-rail">
+        <a className="brand-mark" href="/">
+          <span aria-hidden="true">N</span>
+          <strong>Noesis</strong>
+        </a>
+        <div className="rail-section">
+          <p className="eyebrow">Account</p>
+          <p className="account-email">{userEmail}</p>
+          <button className="quiet-button" type="button" onClick={onSignOut}>
+            Sign out
+          </button>
+        </div>
+        <div className="rail-stats" aria-label="Library summary">
+          <div>
+            <strong>{entries.length}</strong>
+            <span>{entries.length === 1 ? "entry" : "entries"}</span>
+          </div>
+          <div>
+            <strong>{highlights.length}</strong>
+            <span>{highlights.length === 1 ? "highlight" : "highlights"}</span>
+          </div>
+        </div>
+        <p className="sync-note">
+          Synced from the Noesis browser extension. SEP remains the canonical
+          reading source.
+        </p>
+      </aside>
+
+      <div className="library-main">
+        <header className="hero">
+          <p className="eyebrow">Noesis Library</p>
+          <h1>Your SEP reading trail.</h1>
+          <p>
+            Saved entries and highlight notes collected without interrupting the
+            original Stanford Encyclopedia of Philosophy reading flow.
+          </p>
+        </header>
+
+        <div className="dashboard">
           <section className="panel">
-            <h2>Saved entries</h2>
-            {state.entries.length === 0 ? (
-              <p>No synced entries yet.</p>
+            <div className="section-heading">
+              <h2>Saved entries</h2>
+              <span>{entries.length} total</span>
+            </div>
+            {entries.length === 0 ? (
+              <EmptyState
+                title="No entries synced yet"
+                description="Save an SEP entry from the extension, then sync local data from the popup."
+              />
             ) : (
               <ul className="entry-list">
-                {state.entries.map((entry) => (
+                {entries.map((entry) => (
                   <li key={entry.entry_slug}>
                     <a href={entry.source_url}>{entry.title}</a>
                     <span>{new Date(entry.saved_at).toLocaleDateString()}</span>
@@ -195,12 +312,18 @@ function App() {
             )}
           </section>
           <section className="panel">
-            <h2>Recent highlights</h2>
-            {state.highlights.length === 0 ? (
-              <p>No synced highlights yet.</p>
+            <div className="section-heading">
+              <h2>Recent highlights</h2>
+              <span>{highlights.length} total</span>
+            </div>
+            {highlights.length === 0 ? (
+              <EmptyState
+                title="No highlights synced yet"
+                description="Highlight text in a SEP entry, add an optional note, and sync from the extension."
+              />
             ) : (
               <ul className="highlight-list">
-                {state.highlights.map((highlight) => (
+                {highlights.map((highlight) => (
                   <li key={highlight.id}>
                     <q>{highlight.quote}</q>
                     {highlight.note ? <p>{highlight.note}</p> : null}
@@ -210,48 +333,70 @@ function App() {
               </ul>
             )}
           </section>
-        </section>
-      ) : state.type === "loading" ? (
-        <section className="panel">
-          <p>Loading library...</p>
-        </section>
-      ) : (
-        <section className="panel auth">
-          <h2>Sign in</h2>
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={state.email}
-            onChange={(event) =>
-              setState({
-                type: "signed-out",
-                email: event.target.value,
-                message: "Sign in to view your synced Noesis library.",
-              })
-            }
-          />
-          <button type="button" onClick={sendCode}>
-            Send verification code
-          </button>
-          {state.type === "code-sent" ? (
-            <>
-              <input
-                inputMode="numeric"
-                placeholder="Verification code"
-                value={state.token}
-                onChange={(event) =>
-                  setState({ ...state, token: event.target.value })
-                }
-              />
-              <button type="button" onClick={verifyCode}>
-                Verify code
-              </button>
-            </>
-          ) : null}
-          <p>{state.message}</p>
-        </section>
-      )}
-    </main>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      <p>{description}</p>
+    </div>
+  );
+}
+
+function LoadingLibrary({ userEmail }: { userEmail: string }) {
+  return (
+    <section className="library-layout">
+      <aside className="library-rail">
+        <a className="brand-mark" href="/">
+          <span aria-hidden="true">N</span>
+          <strong>Noesis</strong>
+        </a>
+        <div className="rail-section">
+          <p className="eyebrow">Account</p>
+          <p className="account-email">{userEmail}</p>
+        </div>
+      </aside>
+      <div className="library-main">
+        <header className="hero">
+          <p className="eyebrow">Noesis Library</p>
+          <h1>Loading your reading trail.</h1>
+        </header>
+        <div className="panel skeleton-stack" aria-label="Loading library">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CenteredPanel({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <section className="centered-panel">
+      <p className="eyebrow">{eyebrow}</p>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </section>
   );
 }
 

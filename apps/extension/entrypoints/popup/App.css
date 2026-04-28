@@ -1,60 +1,83 @@
 #root {
-  width: 320px;
+  width: 340px;
 }
 
 .popup {
-  padding: 20px;
+  background:
+    radial-gradient(circle at top left, oklch(91% 0.04 103), transparent 14rem),
+    oklch(96% 0.012 82);
+  color: oklch(19% 0.018 75);
+  padding: 18px;
 }
 
 .eyebrow {
-  color: #6a5acd;
+  color: oklch(42% 0.078 103);
   font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   margin: 0 0 8px;
   text-transform: uppercase;
 }
 
 h1 {
-  color: #171717;
-  font-size: 1.35rem;
-  line-height: 1.2;
+  color: oklch(19% 0.018 75);
+  font-size: 1.45rem;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
   margin: 0;
 }
 
 .description {
-  color: #4b5563;
+  color: oklch(45% 0.025 75);
   font-size: 0.9rem;
   margin: 12px 0 0;
 }
 
 button {
-  background: #171717;
+  background: oklch(19% 0.018 75);
   border: 0;
   border-radius: 8px;
-  color: #ffffff;
+  color: oklch(99% 0.006 82);
   cursor: pointer;
   font: inherit;
   font-weight: 700;
-  margin-top: 18px;
+  margin-top: 14px;
   padding: 10px 12px;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
   width: 100%;
 }
 
+button:hover {
+  background: oklch(42% 0.078 103);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid oklch(42% 0.078 103);
+  outline-offset: 2px;
+}
+
 button:disabled {
-  background: #d1d5db;
+  background: oklch(84% 0.018 82);
   cursor: not-allowed;
 }
 
 .secondary-button {
-  background: #f3f4f6;
-  color: #171717;
+  background: oklch(99% 0.006 82);
+  border: 1px solid oklch(88% 0.018 82);
+  color: oklch(19% 0.018 75);
   margin-top: 12px;
 }
 
 .text-button {
   background: transparent;
-  color: #4b5563;
+  color: oklch(42% 0.078 103);
   margin-top: 10px;
   padding: 0;
 }
@@ -66,21 +89,22 @@ button:disabled {
 }
 
 .summary span {
-  background: #f3f4f6;
+  background: oklch(99% 0.006 82);
+  border: 1px solid oklch(88% 0.018 82);
   border-radius: 8px;
-  color: #374151;
+  color: oklch(33% 0.02 75);
   font-size: 0.85rem;
   padding: 8px 10px;
 }
 
 .highlights {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid oklch(88% 0.018 82);
   margin-top: 16px;
   padding-top: 14px;
 }
 
 .highlights h2 {
-  color: #171717;
+  color: oklch(19% 0.018 75);
   font-size: 0.9rem;
   margin: 0 0 8px;
 }
@@ -96,9 +120,10 @@ button:disabled {
 }
 
 .highlights li {
-  background: #fffbeb;
+  background: oklch(99% 0.006 82);
+  border: 1px solid oklch(90% 0.055 103);
   border-radius: 8px;
-  color: #374151;
+  color: oklch(33% 0.02 75);
   font-size: 0.82rem;
   padding: 8px 10px;
 }
@@ -108,24 +133,25 @@ button:disabled {
 }
 
 .highlights p {
-  color: #6b7280;
+  color: oklch(45% 0.025 75);
   margin: 6px 0 0;
 }
 
 .auth-panel {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid oklch(88% 0.018 82);
   margin-top: 16px;
   padding-top: 14px;
 }
 
 .auth-panel h2 {
-  color: #171717;
+  color: oklch(19% 0.018 75);
   font-size: 0.9rem;
   margin: 0 0 8px;
 }
 
 .auth-panel input {
-  border: 1px solid #d1d5db;
+  background: oklch(99% 0.006 82);
+  border: 1px solid oklch(88% 0.018 82);
   border-radius: 8px;
   box-sizing: border-box;
   font: inherit;
@@ -135,7 +161,7 @@ button:disabled {
 }
 
 .auth-panel p {
-  color: #6b7280;
+  color: oklch(45% 0.025 75);
   font-size: 0.82rem;
   margin: 8px 0 0;
 }
@@ -147,24 +173,24 @@ button:disabled {
 }
 
 .highlight-actions button {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  color: #171717;
+  background: oklch(99% 0.006 82);
+  border: 1px solid oklch(88% 0.018 82);
+  color: oklch(19% 0.018 75);
   font-size: 0.78rem;
   margin: 0;
   padding: 6px 8px;
 }
 
 .status {
-  color: #4b5563;
+  color: oklch(45% 0.025 75);
   font-size: 0.85rem;
   margin: 12px 0 0;
 }
 
 .status-success {
-  color: #047857;
+  color: oklch(45% 0.09 145);
 }
 
 .status-error {
-  color: #b91c1c;
+  color: oklch(48% 0.13 28);
 }
