@@ -1,0 +1,29 @@
+#root {
+  width: 320px;
+}
+
+.popup {
+  padding: 20px;
+}
+
+.eyebrow {
+  color: #6a5acd;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+h1 {
+  color: #171717;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.description {
+  color: #4b5563;
+  font-size: 0.9rem;
+  margin: 12px 0 0;
+}
