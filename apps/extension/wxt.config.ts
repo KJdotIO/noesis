@@ -6,7 +6,7 @@ export default defineConfig({
     name: 'Noesis',
     description:
       'A Stanford Encyclopedia of Philosophy reading companion for saves, highlights, and resume.',
-    permissions: ['activeTab', 'scripting', 'storage'],
+    permissions: ['activeTab', 'scripting', 'storage', 'tabs'],
     host_permissions: ['https://plato.stanford.edu/entries/*'],
   },
 });

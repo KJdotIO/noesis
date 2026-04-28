@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { SaveEntryResponse } from "../../utils/messages";
+import { saveGuestEntry } from "../../utils/guest-storage";
+import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
 import "./App.css";
 
 type SaveStatus =
@@ -7,12 +8,42 @@ type SaveStatus =
   | { type: "success"; message: string }
   | { type: "error"; message: string };
 
-async function sendSaveMessage(
-  tabId: number,
-): Promise<SaveEntryResponse | undefined> {
-  return (await browser.tabs.sendMessage(tabId, {
-    type: "noesis:save-entry",
-  })) as SaveEntryResponse | undefined;
+async function getEntryFromTab(tab: Browser.tabs.Tab): Promise<SepEntryContext> {
+  if (!tab.id) {
+    throw new Error("No active tab found.");
+  }
+
+  const [page] = await browser.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => ({
+      canonicalUrl:
+        document.querySelector<HTMLLinkElement>("link[rel='canonical']")
+          ?.href ?? location.href,
+      pageUrl: location.href,
+      title:
+        document
+          .querySelector<HTMLMetaElement>("meta[name='DC.title']")
+          ?.content.trim() ||
+        document.title.replace(" (Stanford Encyclopedia of Philosophy)", "").trim(),
+    }),
+  });
+
+  if (!page.result) {
+    throw new Error("Could not read the active SEP page.");
+  }
+
+  const pageUrl = new URL(page.result.pageUrl);
+  const slug = deriveSepSlug(pageUrl);
+
+  if (!slug) {
+    throw new Error("Open a Stanford Encyclopedia entry first.");
+  }
+
+  return {
+    slug,
+    title: page.result.title,
+    url: page.result.canonicalUrl,
+  };
 }
 
 function App() {
@@ -35,34 +66,20 @@ function App() {
         return;
       }
 
-      let response: SaveEntryResponse | undefined;
-
-      try {
-        response = await sendSaveMessage(tab.id);
-      } catch {
-        await browser.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["/content-scripts/content.js"],
-        });
-        response = await sendSaveMessage(tab.id);
-      }
-
-      if (!response?.ok) {
-        setStatus({
-          type: "error",
-          message: response?.error ?? "Open a Stanford Encyclopedia entry first.",
-        });
-        return;
-      }
+      const entry = await getEntryFromTab(tab);
+      const savedEntry = await saveGuestEntry(entry);
 
       setStatus({
         type: "success",
-        message: `Saved “${response.entry.title}”.`,
+        message: `Saved “${savedEntry.title}”.`,
       });
-    } catch {
+    } catch (error) {
       setStatus({
         type: "error",
-        message: "Open a Stanford Encyclopedia entry first.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Open a Stanford Encyclopedia entry first.",
       });
     }
   }
