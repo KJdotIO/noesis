@@ -339,6 +339,28 @@ function renderHighlight(highlight: GuestHighlight): boolean {
   return false;
 }
 
+function isNoesisUiElement(element: HTMLElement): boolean {
+  return Boolean(
+    element.closest(
+      ".noesis-selection-card, .noesis-highlight-card, .noesis-highlight",
+    ),
+  );
+}
+
+function selectionTouchesNoesisUi(selection: Selection): boolean {
+  if (selection.rangeCount === 0) {
+    return false;
+  }
+
+  const range = selection.getRangeAt(0);
+  const container =
+    range.commonAncestorContainer instanceof HTMLElement
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+
+  return container ? isNoesisUiElement(container) : false;
+}
+
 function clearSelectionCard(): void {
   document.querySelector(".noesis-selection-card")?.remove();
   clearPendingSelection();
@@ -503,12 +525,13 @@ export default defineContentScript({
     });
 
     document.addEventListener("mouseup", (event) => {
-      if ((event.target as HTMLElement).closest(".noesis-selection-card")) {
+      const target = event.target as HTMLElement;
+      if (isNoesisUiElement(target)) {
         return;
       }
 
       const selection = window.getSelection();
-      if (!selection || selection.isCollapsed) {
+      if (!selection || selection.isCollapsed || selectionTouchesNoesisUi(selection)) {
         return;
       }
 
