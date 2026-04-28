@@ -152,6 +152,33 @@ export async function deleteGuestHighlight(
   await writeGuestState(state);
 }
 
+export async function updateGuestHighlight(
+  slug: string,
+  highlightId: string,
+  updates: Pick<Partial<GuestHighlight>, "note" | "color">,
+): Promise<GuestHighlight | null> {
+  const state = await readGuestState();
+  const highlights = state.highlights[slug] ?? [];
+  const highlightIndex = highlights.findIndex(
+    (highlight) => highlight.id === highlightId,
+  );
+
+  if (highlightIndex < 0) {
+    return null;
+  }
+
+  const updatedHighlight = {
+    ...highlights[highlightIndex],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+
+  highlights[highlightIndex] = updatedHighlight;
+  state.highlights[slug] = highlights;
+  await writeGuestState(state);
+  return updatedHighlight;
+}
+
 export async function updateGuestSettings(
   settings: Partial<GuestSettings>,
 ): Promise<GuestSettings> {

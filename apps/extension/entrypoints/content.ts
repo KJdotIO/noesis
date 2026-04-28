@@ -6,6 +6,7 @@ import {
   saveGuestEntry,
   saveGuestHighlight,
   saveGuestReadingPosition,
+  updateGuestHighlight,
 } from "../utils/guest-storage";
 import type { GuestHighlight, HighlightColor } from "../utils/guest-storage";
 import type { NoesisMessage, SaveEntryResponse } from "../utils/messages";
@@ -143,15 +144,41 @@ function injectHighlightStyles(): void {
       margin: 0 0 10px;
     }
 
+    .noesis-highlight-card textarea {
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font: inherit;
+      margin: 8px 0;
+      min-height: 64px;
+      padding: 8px;
+      resize: vertical;
+      width: 100%;
+    }
+
     .noesis-highlight-card button {
-      background: #fee2e2;
       border: 0;
       border-radius: 6px;
-      color: #991b1b;
       cursor: pointer;
       font: inherit;
       font-weight: 700;
       padding: 7px 9px;
+    }
+
+    .noesis-highlight-card-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .noesis-highlight-card-actions button:first-child {
+      background: #f3f4f6;
+      color: #171717;
+    }
+
+    .noesis-highlight-card-actions button:last-child {
+      background: #fee2e2;
+      color: #991b1b;
     }
 
     .noesis-anchor-warning {
@@ -328,24 +355,75 @@ function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
   card.style.left = `${Math.max(12, rect.left + window.scrollX)}px`;
   card.style.top = `${Math.max(12, rect.bottom + window.scrollY + 8)}px`;
 
-  const note = document.createElement("p");
-  note.textContent = highlight.note || "No note yet.";
-  const deleteButton = document.createElement("button");
-  deleteButton.type = "button";
-  deleteButton.textContent = "Delete highlight";
+  const form = document.createElement("form");
+  form.innerHTML = `
+    <strong>Edit highlight</strong>
+    <textarea name="note" placeholder="Optional note"></textarea>
+    <div class="noesis-color-options" aria-label="Highlight color">
+      ${Object.entries(highlightColors)
+        .map(
+          ([color, value]) => `
+            <label title="${color}">
+              <input type="radio" name="color" value="${color}" ${
+                color === (highlight.color ?? "yellow") ? "checked" : ""
+              }>
+              <span class="noesis-color-swatch" style="background: ${value}"></span>
+            </label>
+          `,
+        )
+        .join("")}
+    </div>
+    <div class="noesis-highlight-card-actions">
+      <button type="submit">Save</button>
+      <button type="button" data-action="delete">Delete</button>
+    </div>
+  `;
+  const noteInput = form.querySelector<HTMLTextAreaElement>(
+    "textarea[name='note']",
+  );
+  if (noteInput) {
+    noteInput.value = highlight.note ?? "";
+  }
 
   card.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
   });
 
-  deleteButton.addEventListener("click", () => {
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const note = formData.get("note")?.toString().trim();
+    const color = formData.get("color")?.toString() as HighlightColor;
+
+    void updateGuestHighlight(highlight.slug, highlight.id, {
+      note: note || undefined,
+      color: color || highlight.color,
+    }).then((updatedHighlight) => {
+      if (!updatedHighlight) {
+        return;
+      }
+
+      mark.title = updatedHighlight.note || "Noesis highlight";
+      mark.style.setProperty(
+        "--noesis-highlight-color",
+        highlightColors[updatedHighlight.color ?? "yellow"],
+      );
+      card.remove();
+    });
+  });
+
+  form.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement).dataset.action !== "delete") {
+      return;
+    }
+
     void deleteGuestHighlight(highlight.slug, highlight.id).then(() => {
       unwrapHighlight(mark);
       card.remove();
     });
   });
 
-  card.append(note, deleteButton);
+  card.append(form);
   document.body.append(card);
 }
 
