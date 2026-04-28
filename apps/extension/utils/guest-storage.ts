@@ -54,15 +54,33 @@ export async function writeGuestState(state: GuestState): Promise<void> {
   await browser.storage.local.set({ [guestStateKey]: state });
 }
 
-export async function saveGuestEntry(entry: SepEntryContext): Promise<void> {
+export async function getGuestSavedEntry(
+  slug: string,
+): Promise<GuestSavedEntry | null> {
   const state = await readGuestState();
+  return state.savedEntries[slug] ?? null;
+}
 
-  state.savedEntries[entry.slug] = {
+export async function saveGuestEntry(
+  entry: SepEntryContext,
+): Promise<GuestSavedEntry> {
+  const state = await readGuestState();
+  const savedEntry = {
     ...entry,
     savedAt: new Date().toISOString(),
   };
 
+  state.savedEntries[entry.slug] = savedEntry;
+
   await writeGuestState(state);
+  return savedEntry;
+}
+
+export async function getGuestReadingPosition(
+  slug: string,
+): Promise<GuestReadingPosition | null> {
+  const state = await readGuestState();
+  return state.readingPositions[slug] ?? null;
 }
 
 export async function saveGuestReadingPosition(

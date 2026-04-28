@@ -27,3 +27,30 @@ h1 {
   font-size: 0.9rem;
   margin: 12px 0 0;
 }
+
+button {
+  background: #171717;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  margin-top: 18px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.status {
+  color: #4b5563;
+  font-size: 0.85rem;
+  margin: 12px 0 0;
+}
+
+.status-success {
+  color: #047857;
+}
+
+.status-error {
+  color: #b91c1c;
+}
