@@ -8,6 +8,7 @@ import {
 import type { GuestHighlight, HighlightColor } from "../../utils/guest-storage";
 import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
 import { getSupabaseClient, hasSupabaseConfig } from "../../utils/supabase";
+import { syncGuestStateToSupabase, type SyncSummary } from "../../utils/sync";
 import "./App.css";
 
 type SaveStatus =
@@ -32,8 +33,9 @@ type PageState =
 
 type AuthState =
   | { type: "missing-config" }
+  | { type: "signed-in"; email: string; message: string; syncSummary?: SyncSummary }
   | { type: "signed-out"; email: string; message: string }
-  | { type: "sent"; email: string; message: string }
+  | { type: "sent"; email: string; token: string; message: string }
   | { type: "error"; email: string; message: string };
 
 async function getEntryFromTab(tab: Browser.tabs.Tab): Promise<SepEntryContext> {
@@ -143,7 +145,28 @@ function App() {
 
   useEffect(() => {
     void loadPageState();
+    void loadAuthState();
   }, []);
+
+  async function loadAuthState() {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setAuthState({ type: "missing-config" });
+      return;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+    if (!user?.email) {
+      return;
+    }
+
+    setAuthState({
+      type: "signed-in",
+      email: user.email,
+      message: "Signed in. You can sync local guest data now.",
+    });
+  }
 
   async function saveCurrentEntry() {
     setStatus({ type: "idle", message: "Saving current entry..." });
@@ -266,6 +289,9 @@ function App() {
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
+      options: {
+        shouldCreateUser: true,
+      },
     });
 
     if (error) {
@@ -276,7 +302,105 @@ function App() {
     setAuthState({
       type: "sent",
       email,
-      message: "Magic link sent. Sync migration comes next.",
+      token: "",
+      message: "Check your email for the verification code.",
+    });
+  }
+
+  async function verifyEmailCode() {
+    if (authState.type !== "sent") {
+      return;
+    }
+
+    const token = authState.token.trim();
+    if (!token) {
+      setAuthState({
+        ...authState,
+        message: "Enter the verification code from your email.",
+      });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setAuthState({ type: "missing-config" });
+      return;
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: authState.email,
+      token,
+      type: "email",
+    });
+
+    if (error || !data.user?.email) {
+      setAuthState({
+        ...authState,
+        message: error?.message ?? "Could not verify code.",
+      });
+      return;
+    }
+
+    setAuthState({
+      type: "signed-in",
+      email: data.user.email,
+      message: "Signed in. You can sync local guest data now.",
+    });
+  }
+
+  async function syncLocalData() {
+    if (authState.type !== "signed-in") {
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setAuthState({ type: "missing-config" });
+      return;
+    }
+
+    const [{ data }, guestState] = await Promise.all([
+      supabase.auth.getUser(),
+      readGuestState(),
+    ]);
+
+    if (!data.user) {
+      setAuthState({
+        type: "signed-out",
+        email: authState.email,
+        message: "Session expired. Send a new verification code.",
+      });
+      return;
+    }
+
+    try {
+      const syncSummary = await syncGuestStateToSupabase(
+        supabase,
+        data.user,
+        guestState,
+      );
+      setAuthState({
+        type: "signed-in",
+        email: data.user.email ?? authState.email,
+        syncSummary,
+        message: "Local data synced to your account.",
+      });
+    } catch (error) {
+      setAuthState({
+        type: "error",
+        email: authState.email,
+        message: error instanceof Error ? error.message : "Sync failed.",
+      });
+    }
+  }
+
+  async function signOut() {
+    const supabase = getSupabaseClient();
+    await supabase?.auth.signOut();
+    setAuthState({
+      type: "signed-out",
+      email: "",
+      message: "Signed out. Local guest data remains on this browser.",
     });
   }
 
@@ -345,6 +469,27 @@ function App() {
         <h2>Account sync</h2>
         {authState.type === "missing-config" ? (
           <p>Supabase env vars are not configured yet.</p>
+        ) : authState.type === "signed-in" ? (
+          <>
+            <p>{authState.message}</p>
+            {authState.syncSummary ? (
+              <p>
+                Synced {authState.syncSummary.savedEntries} entries,{" "}
+                {authState.syncSummary.highlights} highlights, and{" "}
+                {authState.syncSummary.readingPositions} reading positions.
+              </p>
+            ) : null}
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={syncLocalData}
+            >
+              Sync local data
+            </button>
+            <button className="text-button" type="button" onClick={signOut}>
+              Sign out {authState.email}
+            </button>
+          </>
         ) : (
           <>
             <input
@@ -355,7 +500,7 @@ function App() {
                 setAuthState({
                   type: "signed-out",
                   email: event.target.value,
-                  message: "Optional: send a magic link to prepare account sync.",
+                  message: "Optional: send a verification code to sync.",
                 })
               }
             />
@@ -364,8 +509,30 @@ function App() {
               type="button"
               onClick={sendMagicLink}
             >
-              Send magic link
+              Send verification code
             </button>
+            {authState.type === "sent" ? (
+              <>
+                <input
+                  inputMode="numeric"
+                  placeholder="Verification code"
+                  value={authState.token}
+                  onChange={(event) =>
+                    setAuthState({
+                      ...authState,
+                      token: event.target.value,
+                    })
+                  }
+                />
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={verifyEmailCode}
+                >
+                  Verify code
+                </button>
+              </>
+            ) : null}
             <p>{authState.message}</p>
           </>
         )}

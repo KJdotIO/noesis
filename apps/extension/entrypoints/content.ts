@@ -153,12 +153,73 @@ function injectHighlightStyles(): void {
       font-weight: 700;
       padding: 7px 9px;
     }
+
+    .noesis-anchor-warning {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+      color: #7c2d12;
+      font: 13px system-ui, sans-serif;
+      max-width: 320px;
+      padding: 10px 12px;
+      position: fixed;
+      right: 16px;
+      top: 16px;
+      z-index: 2147483647;
+    }
+
+    .noesis-anchor-warning strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .noesis-anchor-warning button {
+      background: transparent;
+      border: 0;
+      color: #9a3412;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      margin-top: 6px;
+      padding: 0;
+    }
   `;
   document.head.append(style);
 }
 
-function findTextPosition(quote: string): number | undefined {
-  return document.body?.innerText.indexOf(quote) ?? undefined;
+function getSepTextRoot(): HTMLElement | null {
+  return document.querySelector<HTMLElement>("#article-content");
+}
+
+function isInsideSepTextRegion(element: HTMLElement): boolean {
+  return Boolean(element.closest("#preamble, #main-text"));
+}
+
+function getElementFromNode(node: Node): HTMLElement | null {
+  return node instanceof HTMLElement ? node : node.parentElement;
+}
+
+function selectionIsInsideSepText(selection: Selection): boolean {
+  if (selection.rangeCount === 0) {
+    return false;
+  }
+
+  const range = selection.getRangeAt(0);
+  const startElement = getElementFromNode(range.startContainer);
+  const endElement = getElementFromNode(range.endContainer);
+
+  return Boolean(
+    startElement &&
+      endElement &&
+      isInsideSepTextRegion(startElement) &&
+      isInsideSepTextRegion(endElement),
+  );
+}
+
+function findTextPosition(root: HTMLElement, quote: string): number | undefined {
+  const position = root.innerText.indexOf(quote);
+  return position >= 0 ? position : undefined;
 }
 
 function countOccurrences(text: string, quote: string): number {
@@ -177,19 +238,23 @@ function countOccurrences(text: string, quote: string): number {
   return count;
 }
 
-function getSelectionAnchor(selection: Selection, quote: string) {
-  if (!document.body || selection.rangeCount === 0) {
+function getSelectionAnchor(
+  root: HTMLElement,
+  selection: Selection,
+  quote: string,
+) {
+  if (selection.rangeCount === 0) {
     return {};
   }
 
   const range = selection.getRangeAt(0);
   const beforeRange = document.createRange();
-  beforeRange.selectNodeContents(document.body);
+  beforeRange.selectNodeContents(root);
   beforeRange.setEnd(range.startContainer, range.startOffset);
 
   const before = beforeRange.toString();
   const afterRange = document.createRange();
-  afterRange.selectNodeContents(document.body);
+  afterRange.selectNodeContents(root);
   afterRange.setStart(range.endContainer, range.endOffset);
 
   return {
@@ -306,18 +371,44 @@ function highlightTextNode(
   range.surroundContents(mark);
 }
 
-function renderHighlight(highlight: GuestHighlight): boolean {
+function showAnchorWarning(unresolvedCount: number): void {
+  document.querySelector(".noesis-anchor-warning")?.remove();
+
+  if (unresolvedCount === 0) {
+    return;
+  }
+
+  const warning = document.createElement("aside");
+  warning.className = "noesis-anchor-warning";
+  warning.innerHTML = `
+    <strong>Noesis could not place ${unresolvedCount} ${
+      unresolvedCount === 1 ? "highlight" : "highlights"
+    }.</strong>
+    <span>The entry text may have changed. Your saved notes are still in the popup.</span>
+    <button type="button">Dismiss</button>
+  `;
+  warning.querySelector("button")?.addEventListener("click", () => {
+    warning.remove();
+  });
+  document.body.append(warning);
+}
+
+function renderHighlight(root: HTMLElement, highlight: GuestHighlight): boolean {
   if (!highlight.quote.trim()) {
     return false;
   }
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode() as Text | null;
   let seen = 0;
 
   while (node) {
     const parent = node.parentElement;
-    if (!parent?.closest(".noesis-highlight, .noesis-selection-card")) {
+    if (
+      parent &&
+      isInsideSepTextRegion(parent) &&
+      !parent.closest(".noesis-highlight, .noesis-selection-card")
+    ) {
       let index = node.data.indexOf(highlight.quote);
       while (index >= 0) {
         if (
@@ -368,6 +459,7 @@ function clearSelectionCard(): void {
 
 function showSelectionCard(
   selection: Selection,
+  root: HTMLElement,
   defaultColor: HighlightColor,
   onSave: (
     quote: string,
@@ -385,7 +477,7 @@ function showSelectionCard(
 
   const range = selection.getRangeAt(0).cloneRange();
   const rect = range.getBoundingClientRect();
-  const anchor = getSelectionAnchor(selection, quote);
+  const anchor = getSelectionAnchor(root, selection, quote);
   setPendingSelection(range);
   selection.removeAllRanges();
 
@@ -451,6 +543,11 @@ export default defineContentScript({
 
     const entry = getSepEntryContext(document);
     if (!entry) {
+      return;
+    }
+
+    const textRoot = getSepTextRoot();
+    if (!textRoot) {
       return;
     }
 
@@ -531,12 +628,18 @@ export default defineContentScript({
       }
 
       const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selectionTouchesNoesisUi(selection)) {
+      if (
+        !selection ||
+        selection.isCollapsed ||
+        selectionTouchesNoesisUi(selection) ||
+        !selectionIsInsideSepText(selection)
+      ) {
         return;
       }
 
       showSelectionCard(
         selection,
+        textRoot,
         guestState.settings.defaultHighlightColor,
         (quote, note, color, anchor) => {
           void saveGuestHighlight({
@@ -545,7 +648,7 @@ export default defineContentScript({
             note,
             url: entry.url,
             color,
-            textPosition: findTextPosition(quote),
+            textPosition: findTextPosition(textRoot, quote),
             ...anchor,
           }).then((highlight) => {
             guestState = {
@@ -558,7 +661,7 @@ export default defineContentScript({
                 ],
               },
             };
-            renderHighlight(highlight);
+            renderHighlight(textRoot, highlight);
           });
         },
       );
@@ -573,7 +676,10 @@ export default defineContentScript({
 
     const highlights = await getGuestHighlights(entry.slug);
     window.requestAnimationFrame(() => {
-      highlights.forEach(renderHighlight);
+      const unresolvedCount = highlights.filter(
+        (highlight) => !renderHighlight(textRoot, highlight),
+      ).length;
+      showAnchorWarning(unresolvedCount);
     });
   },
 });
