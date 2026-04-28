@@ -12,6 +12,7 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
+    "qa:smoke": "bun run scripts/qa-smoke.ts",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
