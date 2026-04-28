@@ -1,4 +1,5 @@
 import {
+  deleteGuestHighlight,
   getGuestHighlights,
   getGuestReadingPosition,
   saveGuestEntry,
@@ -68,6 +69,34 @@ function injectHighlightStyles(): void {
       font-weight: 700;
       padding: 7px 9px;
     }
+
+    .noesis-highlight-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+      color: #171717;
+      font: 13px system-ui, sans-serif;
+      max-width: 260px;
+      padding: 10px;
+      position: absolute;
+      z-index: 2147483647;
+    }
+
+    .noesis-highlight-card p {
+      margin: 0 0 10px;
+    }
+
+    .noesis-highlight-card button {
+      background: #fee2e2;
+      border: 0;
+      border-radius: 6px;
+      color: #991b1b;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      padding: 7px 9px;
+    }
   `;
   document.head.append(style);
 }
@@ -76,13 +105,51 @@ function findTextPosition(quote: string): number | undefined {
   return document.body?.innerText.indexOf(quote) ?? undefined;
 }
 
-function highlightTextNode(node: Text, start: number, length: number): void {
+function unwrapHighlight(mark: HTMLElement): void {
+  mark.replaceWith(...mark.childNodes);
+}
+
+function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
+  document.querySelector(".noesis-highlight-card")?.remove();
+
+  const rect = mark.getBoundingClientRect();
+  const card = document.createElement("div");
+  card.className = "noesis-highlight-card";
+  card.style.left = `${Math.max(12, rect.left + window.scrollX)}px`;
+  card.style.top = `${Math.max(12, rect.bottom + window.scrollY + 8)}px`;
+
+  const note = document.createElement("p");
+  note.textContent = highlight.note || "No note yet.";
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete highlight";
+
+  deleteButton.addEventListener("click", () => {
+    void deleteGuestHighlight(highlight.slug, highlight.id).then(() => {
+      unwrapHighlight(mark);
+      card.remove();
+    });
+  });
+
+  card.append(note, deleteButton);
+  document.body.append(card);
+}
+
+function highlightTextNode(
+  node: Text,
+  start: number,
+  length: number,
+  highlight: GuestHighlight,
+): void {
   const range = document.createRange();
   range.setStart(node, start);
   range.setEnd(node, start + length);
 
   const mark = document.createElement("mark");
   mark.className = "noesis-highlight";
+  mark.dataset.noesisHighlightId = highlight.id;
+  mark.title = highlight.note || "Noesis highlight";
+  mark.addEventListener("click", () => showHighlightCard(mark, highlight));
   range.surroundContents(mark);
 }
 
@@ -99,7 +166,7 @@ function renderHighlight(highlight: GuestHighlight): boolean {
     if (!parent?.closest(".noesis-highlight, .noesis-selection-card")) {
       const index = node.data.indexOf(highlight.quote);
       if (index >= 0) {
-        highlightTextNode(node, index, highlight.quote.length);
+        highlightTextNode(node, index, highlight.quote.length, highlight);
         return true;
       }
     }

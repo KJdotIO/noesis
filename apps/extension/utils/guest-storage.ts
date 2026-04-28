@@ -120,3 +120,14 @@ export async function saveGuestHighlight(
   await writeGuestState(state);
   return savedHighlight;
 }
+
+export async function deleteGuestHighlight(
+  slug: string,
+  highlightId: string,
+): Promise<void> {
+  const state = await readGuestState();
+  state.highlights[slug] = (state.highlights[slug] ?? []).filter(
+    (highlight) => highlight.id !== highlightId,
+  );
+  await writeGuestState(state);
+}
