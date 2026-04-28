@@ -7,6 +7,14 @@ type SaveStatus =
   | { type: "success"; message: string }
   | { type: "error"; message: string };
 
+async function sendSaveMessage(
+  tabId: number,
+): Promise<SaveEntryResponse | undefined> {
+  return (await browser.tabs.sendMessage(tabId, {
+    type: "noesis:save-entry",
+  })) as SaveEntryResponse | undefined;
+}
+
 function App() {
   const [status, setStatus] = useState<SaveStatus>({
     type: "idle",
@@ -27,9 +35,17 @@ function App() {
         return;
       }
 
-      const response = (await browser.tabs.sendMessage(tab.id, {
-        type: "noesis:save-entry",
-      })) as SaveEntryResponse | undefined;
+      let response: SaveEntryResponse | undefined;
+
+      try {
+        response = await sendSaveMessage(tab.id);
+      } catch {
+        await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["/content-scripts/content.js"],
+        });
+        response = await sendSaveMessage(tab.id);
+      }
 
       if (!response?.ok) {
         setStatus({

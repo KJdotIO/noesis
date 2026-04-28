@@ -16,19 +16,17 @@ function getScrollRatio(): number {
 export default defineContentScript({
   matches: ["https://plato.stanford.edu/entries/*"],
   async main() {
+    if (document.documentElement.dataset.noesisReady === "true") {
+      return;
+    }
+
     const entry = getSepEntryContext(document);
     if (!entry) {
       return;
     }
 
     document.documentElement.dataset.noesisSepSlug = entry.slug;
-
-    const savedPosition = await getGuestReadingPosition(entry.slug);
-    if (savedPosition?.scrollY) {
-      window.requestAnimationFrame(() => {
-        window.scrollTo({ top: savedPosition.scrollY });
-      });
-    }
+    document.documentElement.dataset.noesisReady = "true";
 
     let savePositionTimer: number | undefined;
 
@@ -68,5 +66,12 @@ export default defineContentScript({
           }));
       },
     );
+
+    const savedPosition = await getGuestReadingPosition(entry.slug);
+    if (savedPosition?.scrollY) {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: savedPosition.scrollY });
+      });
+    }
   },
 });
