@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+
+      - name: Install extension dependencies
+        working-directory: apps/extension
+        run: bun install --frozen-lockfile
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: bun install --frozen-lockfile
+
+      - name: Test extension utilities
+        working-directory: apps/extension
+        run: bun run test
+
+      - name: Compile extension
+        working-directory: apps/extension
+        run: bun run compile
+
+      - name: Build extension
+        working-directory: apps/extension
+        run: bun run build
+
+      - name: Run SEP smoke QA
+        working-directory: apps/extension
+        run: bun run qa:smoke
+
+      - name: Build web app
+        working-directory: apps/web
+        run: bun run build
