@@ -14,6 +14,7 @@ export type GuestReadingPosition = {
 
 export type GuestHighlight = {
   id: string;
+  remoteId?: string;
   slug: string;
   quote: string;
   note?: string;
@@ -34,21 +35,31 @@ export type GuestSettings = {
   defaultHighlightColor: HighlightColor;
 };
 
+export type DeletedGuestHighlight = {
+  localId: string;
+  remoteId?: string;
+  slug: string;
+  deletedAt: string;
+};
+
 export type GuestState = {
   version: 1;
   savedEntries: Record<string, GuestSavedEntry>;
   readingPositions: Record<string, GuestReadingPosition>;
   highlights: Record<string, GuestHighlight[]>;
+  deletedHighlights: Record<string, DeletedGuestHighlight>;
   settings: GuestSettings;
 };
 
 const guestStateKey = "noesis:guest-state";
+let guestStateWriteQueue = Promise.resolve();
 
 const emptyGuestState = (): GuestState => ({
   version: 1,
   savedEntries: {},
   readingPositions: {},
   highlights: {},
+  deletedHighlights: {},
   settings: {
     highlightsVisible: true,
     defaultHighlightColor: "yellow",
@@ -58,44 +69,64 @@ const emptyGuestState = (): GuestState => ({
 export async function readGuestState(): Promise<GuestState> {
   const stored = await browser.storage.local.get(guestStateKey);
   const state = stored[guestStateKey] as Partial<GuestState> | undefined;
+  const baseState = emptyGuestState();
 
   return {
-    ...emptyGuestState(),
+    ...baseState,
     ...state,
     savedEntries: state?.savedEntries ?? {},
     readingPositions: state?.readingPositions ?? {},
     highlights: state?.highlights ?? {},
+    deletedHighlights: state?.deletedHighlights ?? {},
     settings: {
-      ...emptyGuestState().settings,
+      ...baseState.settings,
       ...state?.settings,
     },
   };
 }
 
-export async function writeGuestState(state: GuestState): Promise<void> {
+async function writeGuestState(state: GuestState): Promise<void> {
   await browser.storage.local.set({ [guestStateKey]: state });
 }
 
-export async function getGuestSavedEntry(
-  slug: string,
-): Promise<GuestSavedEntry | null> {
-  const state = await readGuestState();
-  return state.savedEntries[slug] ?? null;
+async function withGuestStateLock<T>(operation: () => Promise<T>): Promise<T> {
+  const locks = navigator.locks;
+  if (locks) {
+    return locks.request("noesis:guest-state", operation);
+  }
+
+  const nextWrite = guestStateWriteQueue.then(operation, operation);
+  guestStateWriteQueue = nextWrite.then(
+    () => undefined,
+    () => undefined,
+  );
+  return nextWrite;
+}
+
+export async function updateGuestState<T>(
+  mutator: (state: GuestState) => T | Promise<T>,
+): Promise<T> {
+  return withGuestStateLock(async () => {
+    const state = await readGuestState();
+    const result = await mutator(state);
+    await writeGuestState(state);
+    return result;
+  });
 }
 
 export async function saveGuestEntry(
   entry: SepEntryContext,
 ): Promise<GuestSavedEntry> {
-  const state = await readGuestState();
-  const savedEntry = {
-    ...entry,
-    savedAt: new Date().toISOString(),
-  };
+  return updateGuestState((state) => {
+    const savedEntry = {
+      ...entry,
+      savedAt: new Date().toISOString(),
+    };
 
-  state.savedEntries[entry.slug] = savedEntry;
+    state.savedEntries[entry.slug] = savedEntry;
 
-  await writeGuestState(state);
-  return savedEntry;
+    return savedEntry;
+  });
 }
 
 export async function getGuestReadingPosition(
@@ -108,9 +139,9 @@ export async function getGuestReadingPosition(
 export async function saveGuestReadingPosition(
   position: GuestReadingPosition,
 ): Promise<void> {
-  const state = await readGuestState();
-  state.readingPositions[position.slug] = position;
-  await writeGuestState(state);
+  await updateGuestState((state) => {
+    state.readingPositions[position.slug] = position;
+  });
 }
 
 export async function getGuestHighlights(
@@ -123,33 +154,46 @@ export async function getGuestHighlights(
 export async function saveGuestHighlight(
   highlight: Omit<GuestHighlight, "id" | "createdAt" | "updatedAt">,
 ): Promise<GuestHighlight> {
-  const state = await readGuestState();
-  const now = new Date().toISOString();
-  const savedHighlight = {
-    ...highlight,
-    id: crypto.randomUUID(),
-    createdAt: now,
-    updatedAt: now,
-  };
+  return updateGuestState((state) => {
+    const now = new Date().toISOString();
+    const savedHighlight = {
+      ...highlight,
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
 
-  state.highlights[highlight.slug] = [
-    ...(state.highlights[highlight.slug] ?? []),
-    savedHighlight,
-  ];
+    state.highlights[highlight.slug] = [
+      ...(state.highlights[highlight.slug] ?? []),
+      savedHighlight,
+    ];
 
-  await writeGuestState(state);
-  return savedHighlight;
+    return savedHighlight;
+  });
 }
 
 export async function deleteGuestHighlight(
   slug: string,
   highlightId: string,
 ): Promise<void> {
-  const state = await readGuestState();
-  state.highlights[slug] = (state.highlights[slug] ?? []).filter(
-    (highlight) => highlight.id !== highlightId,
-  );
-  await writeGuestState(state);
+  await updateGuestState((state) => {
+    const highlight = (state.highlights[slug] ?? []).find(
+      (item) => item.id === highlightId,
+    );
+
+    if (highlight) {
+      state.deletedHighlights[highlight.id] = {
+        localId: highlight.id,
+        remoteId: highlight.remoteId,
+        slug,
+        deletedAt: new Date().toISOString(),
+      };
+    }
+
+    state.highlights[slug] = (state.highlights[slug] ?? []).filter(
+      (highlight) => highlight.id !== highlightId,
+    );
+  });
 }
 
 export async function updateGuestHighlight(
@@ -157,36 +201,36 @@ export async function updateGuestHighlight(
   highlightId: string,
   updates: Pick<Partial<GuestHighlight>, "note" | "color">,
 ): Promise<GuestHighlight | null> {
-  const state = await readGuestState();
-  const highlights = state.highlights[slug] ?? [];
-  const highlightIndex = highlights.findIndex(
-    (highlight) => highlight.id === highlightId,
-  );
+  return updateGuestState((state) => {
+    const highlights = state.highlights[slug] ?? [];
+    const highlightIndex = highlights.findIndex(
+      (highlight) => highlight.id === highlightId,
+    );
 
-  if (highlightIndex < 0) {
-    return null;
-  }
+    if (highlightIndex < 0) {
+      return null;
+    }
 
-  const updatedHighlight = {
-    ...highlights[highlightIndex],
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  };
+    const updatedHighlight = {
+      ...highlights[highlightIndex],
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
 
-  highlights[highlightIndex] = updatedHighlight;
-  state.highlights[slug] = highlights;
-  await writeGuestState(state);
-  return updatedHighlight;
+    highlights[highlightIndex] = updatedHighlight;
+    state.highlights[slug] = highlights;
+    return updatedHighlight;
+  });
 }
 
 export async function updateGuestSettings(
   settings: Partial<GuestSettings>,
 ): Promise<GuestSettings> {
-  const state = await readGuestState();
-  state.settings = {
-    ...state.settings,
-    ...settings,
-  };
-  await writeGuestState(state);
-  return state.settings;
+  return updateGuestState((state) => {
+    state.settings = {
+      ...state.settings,
+      ...settings,
+    };
+    return state.settings;
+  });
 }

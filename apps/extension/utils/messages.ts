@@ -14,6 +14,10 @@ export type ScrollToHighlightMessage = {
   highlightId: string;
 };
 
+export type RefreshHighlightsMessage = {
+  type: "noesis:refresh-highlights";
+};
+
 export type SaveEntryResponse =
   | {
       ok: true;
@@ -27,4 +31,5 @@ export type SaveEntryResponse =
 export type NoesisMessage =
   | SaveEntryMessage
   | SetHighlightsVisibleMessage
-  | ScrollToHighlightMessage;
+  | ScrollToHighlightMessage
+  | RefreshHighlightsMessage;

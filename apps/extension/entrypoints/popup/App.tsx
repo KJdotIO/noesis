@@ -9,6 +9,7 @@ import type { GuestHighlight, HighlightColor } from "../../utils/guest-storage";
 import { deriveSepSlug, type SepEntryContext } from "../../utils/sep";
 import { getSupabaseClient, hasSupabaseConfig } from "../../utils/supabase";
 import { syncGuestStateWithSupabase, type SyncSummary } from "../../utils/sync";
+import type { NoesisMessage } from "../../utils/messages";
 import "./App.css";
 
 type SaveStatus =
@@ -33,12 +34,22 @@ type PageState =
 
 type AuthState =
   | { type: "missing-config" }
-  | { type: "signed-in"; email: string; message: string; syncSummary?: SyncSummary }
+  | { type: "sending"; email: string; message: string }
+  | {
+      type: "signed-in";
+      email: string;
+      message: string;
+      syncSummary?: SyncSummary;
+    }
   | { type: "signed-out"; email: string; message: string }
   | { type: "sent"; email: string; token: string; message: string }
+  | { type: "verifying"; email: string; token: string; message: string }
+  | { type: "syncing"; email: string; message: string }
   | { type: "error"; email: string; message: string };
 
-async function getEntryFromTab(tab: Browser.tabs.Tab): Promise<SepEntryContext> {
+async function getEntryFromTab(
+  tab: Browser.tabs.Tab,
+): Promise<SepEntryContext> {
   if (!tab.id) {
     throw new Error("No active tab found.");
   }
@@ -54,7 +65,9 @@ async function getEntryFromTab(tab: Browser.tabs.Tab): Promise<SepEntryContext> 
         document
           .querySelector<HTMLMetaElement>("meta[name='DC.title']")
           ?.content.trim() ||
-        document.title.replace(" (Stanford Encyclopedia of Philosophy)", "").trim(),
+        document.title
+          .replace(" (Stanford Encyclopedia of Philosophy)", "")
+          .trim(),
     }),
   });
 
@@ -83,6 +96,51 @@ async function activatePageTools(tabId: number): Promise<void> {
   });
 }
 
+function isIgnorableSendMessageError(error: unknown): boolean {
+  let message = "";
+  if (error instanceof Error || error instanceof DOMException) {
+    message = error.message;
+  } else if (typeof error === "string") {
+    message = error;
+  }
+  const normalised = message.toLowerCase();
+
+  return (
+    normalised.includes("receiving end does not exist") ||
+    normalised.includes("message port closed")
+  );
+}
+
+async function sendMessageToTab(
+  tabId: number,
+  message: NoesisMessage,
+): Promise<void> {
+  try {
+    await browser.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    if (isIgnorableSendMessageError(error)) {
+      return;
+    }
+
+    console.warn("[noesis] tabs.sendMessage failed", error);
+    throw error;
+  }
+}
+
+async function refreshCurrentTabHighlights(): Promise<void> {
+  const [tab] = await browser.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  if (!tab?.id) {
+    return;
+  }
+
+  await activatePageTools(tab.id);
+  await sendMessageToTab(tab.id, { type: "noesis:refresh-highlights" });
+}
+
 function App() {
   const [status, setStatus] = useState<SaveStatus>({
     type: "idle",
@@ -97,7 +155,8 @@ function App() {
       ? {
           type: "signed-out",
           email: "",
-          message: "Optional: send a magic link to prepare account sync.",
+          message:
+            "Optional backup. Your local library stays on this browser unless you sync it.",
         }
       : { type: "missing-config" },
   );
@@ -164,7 +223,7 @@ function App() {
     setAuthState({
       type: "signed-in",
       email: user.email,
-      message: "Signed in. You can sync local guest data now.",
+      message: "Signed in. Your local library is ready to sync.",
     });
   }
 
@@ -222,12 +281,21 @@ function App() {
     });
 
     if (tab?.id) {
-      await browser.tabs
-        .sendMessage(tab.id, {
+      try {
+        await activatePageTools(tab.id);
+        await sendMessageToTab(tab.id, {
           type: "noesis:set-highlights-visible",
           visible: settings.highlightsVisible,
-        })
-        .catch(() => undefined);
+        });
+      } catch (error) {
+        setStatus({
+          type: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not update this tab.",
+        });
+      }
     }
   }
 
@@ -257,16 +325,24 @@ function App() {
     }
 
     await activatePageTools(tab.id);
-    await browser.tabs
-      .sendMessage(tab.id, {
+    try {
+      await sendMessageToTab(tab.id, {
         type: "noesis:scroll-to-highlight",
         highlightId: highlight.id,
-      })
-      .catch(() => undefined);
-    setStatus({ type: "idle", message: "Jumped to highlight." });
+      });
+      setStatus({ type: "idle", message: "Jumped to highlight." });
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not jump to highlight.",
+      });
+    }
   }
 
-  async function sendMagicLink() {
+  async function sendSignInEmail() {
     if (authState.type === "missing-config") {
       return;
     }
@@ -287,6 +363,12 @@ function App() {
       return;
     }
 
+    setAuthState({
+      type: "sending",
+      email,
+      message: `Sending sign-in email to ${email}...`,
+    });
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -303,12 +385,13 @@ function App() {
       type: "sent",
       email,
       token: "",
-      message: "Check your email for the verification code.",
+      message:
+        "Email sent. Paste the six-digit code from your inbox to connect this browser.",
     });
   }
 
   async function verifyEmailCode() {
-    if (authState.type !== "sent") {
+    if (authState.type !== "sent" && authState.type !== "verifying") {
       return;
     }
 
@@ -327,15 +410,25 @@ function App() {
       return;
     }
 
+    const pendingState = authState;
+    setAuthState({
+      type: "verifying",
+      email: pendingState.email,
+      token,
+      message: "Checking that code...",
+    });
+
     const { data, error } = await supabase.auth.verifyOtp({
-      email: authState.email,
+      email: pendingState.email,
       token,
       type: "email",
     });
 
     if (error || !data.user?.email) {
       setAuthState({
-        ...authState,
+        type: "sent",
+        email: pendingState.email,
+        token,
         message: error?.message ?? "Could not verify code.",
       });
       return;
@@ -344,7 +437,7 @@ function App() {
     setAuthState({
       type: "signed-in",
       email: data.user.email,
-      message: "Signed in. You can sync local guest data now.",
+      message: "Verified. You can sync this browser's local library now.",
     });
   }
 
@@ -359,6 +452,13 @@ function App() {
       return;
     }
 
+    const email = authState.email;
+    setAuthState({
+      type: "syncing",
+      email,
+      message: "Syncing local library to your account...",
+    });
+
     const [{ data }, guestState] = await Promise.all([
       supabase.auth.getUser(),
       readGuestState(),
@@ -367,8 +467,8 @@ function App() {
     if (!data.user) {
       setAuthState({
         type: "signed-out",
-        email: authState.email,
-        message: "Session expired. Send a new verification code.",
+        email,
+        message: "Session expired. Send a fresh sign-in email.",
       });
       return;
     }
@@ -379,16 +479,22 @@ function App() {
         data.user,
         guestState,
       );
+      await loadPageState();
+      try {
+        await refreshCurrentTabHighlights();
+      } catch (error) {
+        console.warn("[noesis] could not refresh page highlights", error);
+      }
       setAuthState({
         type: "signed-in",
-        email: data.user.email ?? authState.email,
+        email: data.user.email ?? email,
         syncSummary,
         message: "Account and local library are in sync.",
       });
     } catch (error) {
       setAuthState({
         type: "error",
-        email: authState.email,
+        email,
         message: error instanceof Error ? error.message : "Sync failed.",
       });
     }
@@ -407,9 +513,7 @@ function App() {
   return (
     <main className="popup">
       <p className="eyebrow">Noesis</p>
-      <h1>
-        {pageState.supported ? pageState.entry.title : "SEP companion"}
-      </h1>
+      <h1>{pageState.supported ? pageState.entry.title : "SEP companion"}</h1>
       {pageState.supported ? (
         <section className="summary">
           <span>{pageState.saved ? "Saved" : "Not saved yet"}</span>
@@ -448,15 +552,21 @@ function App() {
         <section className="highlights">
           <h2>Saved highlights</h2>
           <ul>
-            {pageState.highlights.slice(0, 3).map((highlight) => (
+            {pageState.highlights.map((highlight) => (
               <li key={highlight.id}>
                 <q>{highlight.quote}</q>
                 {highlight.note ? <p>{highlight.note}</p> : null}
                 <div className="highlight-actions">
-                  <button type="button" onClick={() => jumpToHighlight(highlight)}>
+                  <button
+                    type="button"
+                    onClick={() => jumpToHighlight(highlight)}
+                  >
                     Jump
                   </button>
-                  <button type="button" onClick={() => deleteHighlight(highlight)}>
+                  <button
+                    type="button"
+                    onClick={() => deleteHighlight(highlight)}
+                  >
                     Delete
                   </button>
                 </div>
@@ -466,27 +576,37 @@ function App() {
         </section>
       ) : null}
       <section className="auth-panel">
-        <h2>Account sync</h2>
+        <h2>Optional backup</h2>
         {authState.type === "missing-config" ? (
-          <p>Supabase env vars are not configured yet.</p>
-        ) : authState.type === "signed-in" ? (
+          <p>Sync isn't configured in this build.</p>
+        ) : authState.type === "signed-in" || authState.type === "syncing" ? (
           <>
             <p>{authState.message}</p>
-            {authState.syncSummary ? (
+            {authState.type === "signed-in" && authState.syncSummary ? (
               <p>
                 Pushed {authState.syncSummary.savedEntries} entries,{" "}
-                {authState.syncSummary.highlights} highlights, and pulled{" "}
-                {authState.syncSummary.pulledEntries ?? 0} account entries.
+                {authState.syncSummary.highlights} account highlights. Pulled{" "}
+                {authState.syncSummary.pulledEntries ?? 0} entries and{" "}
+                {authState.syncSummary.pulledHighlights ?? 0} account
+                highlights. This page now shows its own highlights above.
               </p>
             ) : null}
             <button
               className="secondary-button"
               type="button"
+              disabled={authState.type === "syncing"}
               onClick={syncLocalData}
             >
-              Sync account data
+              {authState.type === "syncing"
+                ? "Syncing..."
+                : "Sync account data"}
             </button>
-            <button className="text-button" type="button" onClick={signOut}>
+            <button
+              className="text-button"
+              type="button"
+              disabled={authState.type === "syncing"}
+              onClick={signOut}
+            >
               Sign out {authState.email}
             </button>
           </>
@@ -496,27 +616,37 @@ function App() {
               type="email"
               placeholder="you@example.com"
               value={authState.email}
+              disabled={
+                authState.type === "sending" || authState.type === "verifying"
+              }
               onChange={(event) =>
                 setAuthState({
                   type: "signed-out",
                   email: event.target.value,
-                  message: "Optional: send a verification code to sync.",
+                  message:
+                    "Optional backup. Your local library stays on this browser unless you sync it.",
                 })
               }
             />
             <button
               className="secondary-button"
               type="button"
-              onClick={sendMagicLink}
+              disabled={
+                authState.type === "sending" || authState.type === "verifying"
+              }
+              onClick={sendSignInEmail}
             >
-              Send verification code
+              {authState.type === "sending"
+                ? "Sending..."
+                : "Send sign-in email"}
             </button>
-            {authState.type === "sent" ? (
+            {authState.type === "sent" || authState.type === "verifying" ? (
               <>
                 <input
                   inputMode="numeric"
-                  placeholder="Verification code"
+                  placeholder="Six-digit code"
                   value={authState.token}
+                  disabled={authState.type === "verifying"}
                   onChange={(event) =>
                     setAuthState({
                       ...authState,
@@ -527,10 +657,17 @@ function App() {
                 <button
                   className="secondary-button"
                   type="button"
+                  disabled={authState.type === "verifying"}
                   onClick={verifyEmailCode}
                 >
-                  Verify code
+                  {authState.type === "verifying"
+                    ? "Verifying..."
+                    : "Verify code"}
                 </button>
+                <p className="auth-hint">
+                  If your email only shows a magic link, the Supabase email
+                  template needs to include the six-digit token.
+                </p>
               </>
             ) : null}
             <p>{authState.message}</p>

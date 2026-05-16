@@ -1,12 +1,12 @@
-import { defineConfig } from 'wxt';
+import { defineConfig } from "wxt";
 
 export default defineConfig({
-  modules: ['@wxt-dev/module-react'],
+  modules: ["@wxt-dev/module-react"],
   manifest: {
-    name: 'Noesis',
+    name: "Noesis",
     description:
-      'A Stanford Encyclopedia of Philosophy reading companion for saves, highlights, and resume.',
-    permissions: ['activeTab', 'scripting', 'storage', 'tabs'],
-    host_permissions: ['https://plato.stanford.edu/entries/*'],
+      "A Stanford Encyclopedia of Philosophy reading companion for saves, highlights, and reading position.",
+    permissions: ["activeTab", "scripting", "storage", "tabs"],
+    host_permissions: ["https://plato.stanford.edu/entries/*"],
   },
 });

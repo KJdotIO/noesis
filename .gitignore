@@ -15,11 +15,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+logs/
 
 # Environment files
 .env
 .env.*
 !.env.example
+
+# Local Supabase state
+supabase/.temp/
 
 # OS files
 .DS_Store
@@ -30,5 +34,7 @@ Thumbs.db
 .idea/
 
 # Data artefacts
+data/*.json
+data/*.jsonl
 data/samples/*.json
 data/samples/*.jsonl

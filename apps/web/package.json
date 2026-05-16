@@ -1,7 +1,7 @@
 {
   "name": "noesis-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.13",
-    "@types/react-dom": "^19.2.3"
+    "@types/react-dom": "^19.2.3",
+    "noesis-types": "file:../../packages/noesis-types"
   }
 }

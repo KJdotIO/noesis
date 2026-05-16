@@ -9,13 +9,30 @@ import {
   updateGuestHighlight,
 } from "../utils/guest-storage";
 import type { GuestHighlight, HighlightColor } from "../utils/guest-storage";
+import {
+  countNormalizedOccurrences,
+  findNormalizedQuotePosition,
+  getNormalizedQuote,
+  normalizeSearchText,
+} from "../utils/highlight-anchors";
 import type { NoesisMessage, SaveEntryResponse } from "../utils/messages";
 import { getSepEntryContext } from "../utils/sep";
 
 type SelectionAnchor = {
+  textPosition?: number;
   occurrenceIndex?: number;
   prefix?: string;
   suffix?: string;
+};
+
+type TextAnchor = {
+  node: Text;
+  offset: number;
+};
+
+type HighlightableTextIndex = {
+  text: string;
+  anchors: Array<TextAnchor | null>;
 };
 
 const highlightColors: Record<HighlightColor, string> = {
@@ -26,9 +43,12 @@ const highlightColors: Record<HighlightColor, string> = {
   purple: "oklch(88% 0.045 300)",
 };
 
+function isHighlightColor(value: string): value is HighlightColor {
+  return value in highlightColors;
+}
+
 function getScrollRatio(): number {
-  const maxScroll =
-    document.documentElement.scrollHeight - window.innerHeight;
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
 
   return maxScroll > 0 ? window.scrollY / maxScroll : 0;
 }
@@ -42,9 +62,10 @@ function injectHighlightStyles(): void {
   style.id = "noesis-highlight-style";
   style.textContent = `
     .noesis-highlight {
-      background: var(--noesis-highlight-color, #fff3a3);
+      background: var(--noesis-highlight-color, oklch(94% 0.04 78));
       border-radius: 2px;
-      box-shadow: 0 0 0 1px color-mix(in oklch, var(--noesis-highlight-color) 70%, oklch(19% 0.018 75));
+      box-decoration-break: clone;
+      box-shadow: 0 0 0 1px color-mix(in oklch, var(--noesis-highlight-color) 72%, oklch(18% 0.012 72));
     }
 
     .noesis-highlights-hidden .noesis-highlight {
@@ -53,37 +74,53 @@ function injectHighlightStyles(): void {
     }
 
     ::highlight(noesis-pending) {
-      background: #bfdbfe;
+      background: oklch(93% 0.024 235);
     }
 
-    .noesis-selection-card {
-      background: oklch(19% 0.018 75);
-      border: 1px solid oklch(32% 0.018 75);
-      border-radius: 12px;
-      box-shadow: 0 18px 44px color-mix(in oklch, oklch(19% 0.018 75) 28%, transparent);
-      color: oklch(99% 0.006 82);
-      font: 13px system-ui, sans-serif;
-      padding: 12px;
-      position: absolute;
-      width: 236px;
+    .noesis-selection-card,
+    .noesis-highlight-card,
+    .noesis-anchor-warning {
+      font: 13px/1.5 "Avenir Next", "Gill Sans", ui-sans-serif, sans-serif;
+      letter-spacing: -0.005em;
       z-index: 2147483647;
     }
 
-    .noesis-selection-card textarea {
-      background: oklch(99% 0.006 82);
-      border: 1px solid oklch(88% 0.018 82);
+    .noesis-selection-card {
+      background: oklch(99% 0.004 82);
+      border: 1px solid oklch(89.5% 0.008 82);
+      border-radius: 10px;
+      color: oklch(18% 0.012 72);
+      padding: 12px;
+      position: absolute;
+      width: 238px;
+    }
+
+    .noesis-selection-card textarea,
+    .noesis-highlight-card textarea {
+      background: oklch(99% 0.004 82);
+      border: 1px solid oklch(89.5% 0.008 82);
       border-radius: 8px;
       box-sizing: border-box;
-      color: oklch(19% 0.018 75);
+      color: oklch(18% 0.012 72);
       font: inherit;
       margin: 8px 0;
-      min-height: 58px;
+      min-height: 60px;
       padding: 8px;
       resize: vertical;
       width: 100%;
     }
 
-    .noesis-selection-actions {
+    .noesis-selection-card textarea:focus-visible,
+    .noesis-highlight-card textarea:focus-visible,
+    .noesis-selection-card button:focus-visible,
+    .noesis-highlight-card button:focus-visible,
+    .noesis-anchor-warning button:focus-visible {
+      outline: 2px solid oklch(43% 0.054 105);
+      outline-offset: 2px;
+    }
+
+    .noesis-selection-actions,
+    .noesis-highlight-card-actions {
       display: flex;
       gap: 8px;
       justify-content: flex-end;
@@ -109,7 +146,7 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-color-swatch {
-      border: 2px solid transparent;
+      border: 1px solid color-mix(in oklch, currentColor 18%, transparent);
       border-radius: 999px;
       display: block;
       height: 20px;
@@ -117,104 +154,114 @@ function injectHighlightStyles(): void {
     }
 
     .noesis-color-options input:checked + .noesis-color-swatch {
-      border-color: oklch(99% 0.006 82);
-      box-shadow: 0 0 0 2px oklch(19% 0.018 75);
+      box-shadow:
+        0 0 0 2px oklch(99% 0.004 82),
+        0 0 0 3px oklch(18% 0.012 72);
     }
 
-    .noesis-selection-card button {
-      border: 0;
+    .noesis-selection-card button,
+    .noesis-highlight-card button,
+    .noesis-anchor-warning button {
+      border: 1px solid transparent;
       border-radius: 6px;
       cursor: pointer;
       font: inherit;
-      font-weight: 700;
+      font-weight: 720;
       padding: 7px 9px;
+      transition:
+        background 180ms cubic-bezier(0.16, 1, 0.3, 1),
+        border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+        color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+        transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .noesis-selection-card button:active,
+    .noesis-highlight-card button:active,
+    .noesis-anchor-warning button:active {
+      transform: scale(0.985);
+    }
+
+    .noesis-selection-actions button:first-child {
+      background: oklch(97.8% 0.007 82);
+      border-color: oklch(89.5% 0.008 82);
+      color: oklch(18% 0.012 72);
+    }
+
+    .noesis-selection-actions button:first-child:hover {
+      border-color: oklch(82% 0.011 82);
+    }
+
+    .noesis-selection-actions button:last-child {
+      background: oklch(18% 0.012 72);
+      color: oklch(99% 0.004 82);
+    }
+
+    .noesis-selection-actions button:last-child:hover {
+      background: oklch(25% 0.014 72);
     }
 
     .noesis-highlight-card {
-      background: oklch(99% 0.006 82);
-      border: 1px solid oklch(88% 0.018 82);
-      border-radius: 12px;
-      box-shadow: 0 18px 44px color-mix(in oklch, oklch(19% 0.018 75) 18%, transparent);
-      color: oklch(19% 0.018 75);
-      font: 13px system-ui, sans-serif;
-      max-width: 280px;
+      background: oklch(99% 0.004 82);
+      border: 1px solid oklch(89.5% 0.008 82);
+      border-radius: 10px;
+      color: oklch(18% 0.012 72);
+      max-width: 284px;
       padding: 12px;
       position: absolute;
-      z-index: 2147483647;
     }
 
     .noesis-highlight-card p {
+      color: oklch(31% 0.014 72);
       margin: 0 0 10px;
     }
 
     .noesis-highlight-card textarea {
-      background: oklch(96% 0.012 82);
-      border: 1px solid oklch(88% 0.018 82);
-      border-radius: 8px;
-      box-sizing: border-box;
-      color: oklch(19% 0.018 75);
-      font: inherit;
-      margin: 8px 0;
-      min-height: 64px;
-      padding: 8px;
-      resize: vertical;
-      width: 100%;
-    }
-
-    .noesis-highlight-card button {
-      border: 0;
-      border-radius: 6px;
-      cursor: pointer;
-      font: inherit;
-      font-weight: 700;
-      padding: 7px 9px;
-    }
-
-    .noesis-highlight-card-actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
+      background: oklch(97.8% 0.007 82);
     }
 
     .noesis-highlight-card-actions button:first-child {
-      background: oklch(96% 0.012 82);
-      color: oklch(19% 0.018 75);
+      background: oklch(97.8% 0.007 82);
+      border-color: oklch(89.5% 0.008 82);
+      color: oklch(18% 0.012 72);
+    }
+
+    .noesis-highlight-card-actions button:first-child:hover {
+      border-color: oklch(82% 0.011 82);
     }
 
     .noesis-highlight-card-actions button:last-child {
-      background: oklch(94% 0.04 28);
-      color: oklch(48% 0.13 28);
+      background: oklch(94% 0.035 26);
+      color: oklch(45% 0.09 28);
     }
 
     .noesis-anchor-warning {
-      background: oklch(98% 0.02 55);
-      border: 1px solid oklch(88% 0.08 55);
-      border-radius: 12px;
-      box-shadow: 0 18px 44px color-mix(in oklch, oklch(19% 0.018 75) 14%, transparent);
-      color: oklch(35% 0.09 55);
-      font: 13px system-ui, sans-serif;
+      background: oklch(99% 0.004 82);
+      border: 1px solid oklch(88% 0.04 78);
+      border-radius: 10px;
+      color: oklch(46% 0.06 78);
       max-width: 320px;
       padding: 10px 12px;
       position: fixed;
       right: 16px;
       top: 16px;
-      z-index: 2147483647;
     }
 
     .noesis-anchor-warning strong {
+      color: oklch(18% 0.012 72);
       display: block;
       margin-bottom: 4px;
     }
 
     .noesis-anchor-warning button {
       background: transparent;
-      border: 0;
-      color: oklch(42% 0.078 103);
-      cursor: pointer;
-      font: inherit;
-      font-weight: 700;
+      color: oklch(43% 0.054 105);
       margin-top: 6px;
       padding: 0;
+    }
+
+    .noesis-anchor-warning button:hover {
+      color: oklch(18% 0.012 72);
+      text-decoration: underline;
     }
   `;
   document.head.append(style);
@@ -232,6 +279,24 @@ function getElementFromNode(node: Node): HTMLElement | null {
   return node instanceof HTMLElement ? node : node.parentElement;
 }
 
+function getHighlightBlock(element: HTMLElement): HTMLElement | null {
+  return element.closest<HTMLElement>(
+    "p, blockquote, li, dd, dt, pre, h1, h2, h3, h4, h5, h6",
+  );
+}
+
+function rangeFitsSingleHighlightBlock(range: Range): boolean {
+  const startElement = getElementFromNode(range.startContainer);
+  const endElement = getElementFromNode(range.endContainer);
+  if (!startElement || !endElement) {
+    return false;
+  }
+
+  const startBlock = getHighlightBlock(startElement);
+  const endBlock = getHighlightBlock(endElement);
+  return Boolean(startBlock && startBlock === endBlock);
+}
+
 function selectionIsInsideSepText(selection: Selection): boolean {
   if (selection.rangeCount === 0) {
     return false;
@@ -243,31 +308,203 @@ function selectionIsInsideSepText(selection: Selection): boolean {
 
   return Boolean(
     startElement &&
-      endElement &&
-      isInsideSepTextRegion(startElement) &&
-      isInsideSepTextRegion(endElement),
+    endElement &&
+    isInsideSepTextRegion(startElement) &&
+    isInsideSepTextRegion(endElement),
   );
 }
 
-function findTextPosition(root: HTMLElement, quote: string): number | undefined {
-  const position = root.innerText.indexOf(quote);
+function selectionFitsSingleHighlightBlock(selection: Selection): boolean {
+  if (selection.rangeCount === 0) {
+    return false;
+  }
+
+  return rangeFitsSingleHighlightBlock(selection.getRangeAt(0));
+}
+
+function findTextPosition(
+  root: HTMLElement,
+  quote: string,
+): number | undefined {
+  const position = collectHighlightableText(root).text.indexOf(
+    getNormalizedQuote(quote),
+  );
   return position >= 0 ? position : undefined;
 }
 
-function countOccurrences(text: string, quote: string): number {
-  if (!quote) {
-    return 0;
+function shouldSkipTextNode(node: Text): boolean {
+  return Boolean(
+    node.parentElement?.closest(
+      ".noesis-selection-card, .noesis-highlight-card, .noesis-anchor-warning",
+    ),
+  );
+}
+
+function appendTextCharacter(
+  index: HighlightableTextIndex,
+  character: string,
+  anchor: TextAnchor | null,
+): void {
+  const isWhitespace = /\s/.test(character);
+  if (isWhitespace) {
+    appendTextSeparator(index, anchor);
+    return;
   }
 
-  let count = 0;
-  let index = text.indexOf(quote);
+  index.text += character;
+  index.anchors.push(anchor);
+}
 
-  while (index >= 0) {
-    count += 1;
-    index = text.indexOf(quote, index + quote.length);
+function appendTextSeparator(
+  index: HighlightableTextIndex,
+  anchor: TextAnchor | null,
+): void {
+  if (!index.text || index.text.endsWith(" ")) {
+    return;
   }
 
-  return count;
+  index.text += " ";
+  index.anchors.push(anchor);
+}
+
+function appendTextNode(index: HighlightableTextIndex, node: Text): void {
+  for (let offset = 0; offset < node.data.length; offset += 1) {
+    appendTextCharacter(index, node.data[offset] ?? "", { node, offset });
+  }
+}
+
+function isBlockBoundary(element: HTMLElement): boolean {
+  return [
+    "ADDRESS",
+    "ARTICLE",
+    "ASIDE",
+    "BLOCKQUOTE",
+    "DD",
+    "DIV",
+    "DL",
+    "DT",
+    "FIGCAPTION",
+    "FIGURE",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "LI",
+    "OL",
+    "P",
+    "PRE",
+    "SECTION",
+    "TABLE",
+    "UL",
+  ].includes(element.tagName);
+}
+
+function collectHighlightableText(root: HTMLElement): HighlightableTextIndex {
+  const index: HighlightableTextIndex = { text: "", anchors: [] };
+
+  const visit = (node: Node): void => {
+    if (node instanceof Text) {
+      const parent = node.parentElement;
+      if (
+        parent &&
+        isInsideSepTextRegion(parent) &&
+        !shouldSkipTextNode(node)
+      ) {
+        appendTextNode(index, node);
+      }
+      return;
+    }
+
+    if (!(node instanceof HTMLElement)) {
+      return;
+    }
+
+    if (
+      node.matches(
+        ".noesis-selection-card, .noesis-highlight-card, .noesis-anchor-warning",
+      )
+    ) {
+      return;
+    }
+
+    if (node.tagName === "BR" && isInsideSepTextRegion(node)) {
+      appendTextSeparator(index, null);
+      return;
+    }
+
+    for (const child of node.childNodes) {
+      visit(child);
+    }
+
+    if (node !== root && isInsideSepTextRegion(node) && isBlockBoundary(node)) {
+      appendTextSeparator(index, null);
+    }
+  };
+
+  visit(root);
+  const hasTrailingSpace = index.text.endsWith(" ");
+  return {
+    text: index.text.trimEnd(),
+    anchors: hasTrailingSpace ? index.anchors.slice(0, -1) : index.anchors,
+  };
+}
+
+function findQuotePosition(
+  text: string,
+  highlight: GuestHighlight,
+): number | undefined {
+  return findNormalizedQuotePosition(text, highlight);
+}
+
+function createTextRange(
+  anchors: Array<TextAnchor | null>,
+  start: number,
+  length: number,
+): Range | null {
+  const end = start + length;
+  let startAnchor: TextAnchor | null = null;
+  let endAnchor: TextAnchor | null = null;
+
+  for (let index = start; index < end; index += 1) {
+    const anchor = anchors[index];
+    if (anchor) {
+      startAnchor = anchor;
+      break;
+    }
+  }
+
+  for (let index = end - 1; index >= start; index -= 1) {
+    const anchor = anchors[index];
+    if (anchor) {
+      endAnchor = anchor;
+      break;
+    }
+  }
+
+  if (!startAnchor || !endAnchor) {
+    return null;
+  }
+
+  const range = document.createRange();
+  range.setStart(startAnchor.node, startAnchor.offset);
+  range.setEnd(endAnchor.node, endAnchor.offset + 1);
+  return range;
+}
+
+function findRangeStartTextPosition(
+  root: HTMLElement,
+  range: Range,
+): number | undefined {
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(root);
+  try {
+    beforeRange.setEnd(range.startContainer, range.startOffset);
+  } catch {
+    return undefined;
+  }
+  return normalizeSearchText(beforeRange.toString()).length;
 }
 
 function getSelectionAnchor(
@@ -288,46 +525,37 @@ function getSelectionAnchor(
   const afterRange = document.createRange();
   afterRange.selectNodeContents(root);
   afterRange.setStart(range.endContainer, range.endOffset);
+  const textPosition = findRangeStartTextPosition(root, range);
 
   return {
-    occurrenceIndex: countOccurrences(before, quote),
-    prefix: before.slice(-80),
-    suffix: afterRange.toString().slice(0, 80),
+    textPosition,
+    occurrenceIndex: countNormalizedOccurrences(before, quote),
+    prefix: normalizeSearchText(before).slice(-80),
+    suffix: normalizeSearchText(afterRange.toString()).slice(0, 80),
   };
 }
 
 function setPendingSelection(range: Range): void {
-  const highlightApi = CSS as unknown as {
-    highlights?: {
-      set: (name: string, highlight: unknown) => void;
-    };
-  };
-  const highlightCtor = globalThis as unknown as {
-    Highlight?: new (range: Range) => unknown;
-  };
-
-  if (!highlightApi.highlights || !highlightCtor.Highlight) {
+  // TypeScript ships the Custom Highlight API types, but not every runtime
+  // actually implements them.
+  const highlights = (CSS as { highlights?: HighlightRegistry }).highlights;
+  if (!highlights || typeof Highlight !== "function") {
     return;
   }
 
-  highlightApi.highlights.set(
-    "noesis-pending",
-    new highlightCtor.Highlight(range),
-  );
+  highlights.set("noesis-pending", new Highlight(range));
 }
 
 function clearPendingSelection(): void {
-  const highlightApi = CSS as unknown as {
-    highlights?: {
-      delete: (name: string) => void;
-    };
-  };
-
-  highlightApi.highlights?.delete("noesis-pending");
+  const highlights = (CSS as { highlights?: HighlightRegistry }).highlights;
+  highlights?.delete("noesis-pending");
 }
 
 function setHighlightsVisible(visible: boolean): void {
-  document.documentElement.classList.toggle("noesis-highlights-hidden", !visible);
+  document.documentElement.classList.toggle(
+    "noesis-highlights-hidden",
+    !visible,
+  );
 }
 
 function scrollToHighlight(highlightId: string): void {
@@ -343,8 +571,45 @@ function scrollToHighlight(highlightId: string): void {
   mark.click();
 }
 
+function restoreReadingPosition(position: {
+  scrollY: number;
+  scrollRatio: number;
+}): void {
+  if (window.location.hash) {
+    return;
+  }
+
+  const scrollToSavedPosition = () => {
+    const maxScroll =
+      document.documentElement.scrollHeight - window.innerHeight;
+    const scrollY =
+      position.scrollY > 0
+        ? Math.min(position.scrollY, Math.max(0, maxScroll))
+        : Math.round(Math.max(0, maxScroll) * position.scrollRatio);
+
+    window.scrollTo({ top: scrollY });
+  };
+
+  window.requestAnimationFrame(scrollToSavedPosition);
+  window.addEventListener(
+    "load",
+    () => {
+      window.setTimeout(scrollToSavedPosition, 100);
+    },
+    { once: true },
+  );
+}
+
 function unwrapHighlight(mark: HTMLElement): void {
   mark.replaceWith(...mark.childNodes);
+}
+
+function clearRenderedHighlights(): void {
+  for (const mark of document.querySelectorAll<HTMLElement>(
+    ".noesis-highlight",
+  )) {
+    unwrapHighlight(mark);
+  }
 }
 
 function clearHighlightCard(): void {
@@ -398,7 +663,11 @@ function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
     event.preventDefault();
     const formData = new FormData(form);
     const note = formData.get("note")?.toString().trim();
-    const color = formData.get("color")?.toString() as HighlightColor;
+    const colorValue = formData.get("color");
+    const color =
+      typeof colorValue === "string" && isHighlightColor(colorValue)
+        ? colorValue
+        : undefined;
 
     void updateGuestHighlight(highlight.slug, highlight.id, {
       note: note || undefined,
@@ -418,7 +687,11 @@ function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
   });
 
   form.addEventListener("click", (event) => {
-    if ((event.target as HTMLElement).dataset.action !== "delete") {
+    const target = event.target;
+    if (
+      !(target instanceof HTMLElement) ||
+      target.dataset.action !== "delete"
+    ) {
       return;
     }
 
@@ -432,16 +705,7 @@ function showHighlightCard(mark: HTMLElement, highlight: GuestHighlight): void {
   document.body.append(card);
 }
 
-function highlightTextNode(
-  node: Text,
-  start: number,
-  length: number,
-  highlight: GuestHighlight,
-): void {
-  const range = document.createRange();
-  range.setStart(node, start);
-  range.setEnd(node, start + length);
-
+function highlightRange(range: Range, highlight: GuestHighlight): void {
   const mark = document.createElement("mark");
   mark.className = "noesis-highlight";
   mark.dataset.noesisHighlightId = highlight.id;
@@ -451,23 +715,18 @@ function highlightTextNode(
     highlightColors[highlight.color ?? "yellow"],
   );
   mark.addEventListener("click", () => showHighlightCard(mark, highlight));
-  range.surroundContents(mark);
+  mark.append(range.extractContents());
+  range.insertNode(mark);
 }
 
-function showAnchorWarning(unresolvedCount: number): void {
+function showNoesisWarning(title: string, message: string): void {
   document.querySelector(".noesis-anchor-warning")?.remove();
-
-  if (unresolvedCount === 0) {
-    return;
-  }
 
   const warning = document.createElement("aside");
   warning.className = "noesis-anchor-warning";
   warning.innerHTML = `
-    <strong>Noesis could not place ${unresolvedCount} ${
-      unresolvedCount === 1 ? "highlight" : "highlights"
-    }.</strong>
-    <span>The entry text may have changed. Your saved notes are still in the popup.</span>
+    <strong>${title}</strong>
+    <span>${message}</span>
     <button type="button">Dismiss</button>
   `;
   warning.querySelector("button")?.addEventListener("click", () => {
@@ -476,44 +735,73 @@ function showAnchorWarning(unresolvedCount: number): void {
   document.body.append(warning);
 }
 
-function renderHighlight(root: HTMLElement, highlight: GuestHighlight): boolean {
+function showAnchorWarning(unresolvedCount: number): void {
+  if (unresolvedCount === 0) {
+    return;
+  }
+
+  showNoesisWarning(
+    `Noesis could not place ${unresolvedCount} ${
+      unresolvedCount === 1 ? "highlight" : "highlights"
+    }.`,
+    "The entry text may have changed. Your saved notes are still in the popup.",
+  );
+}
+
+function showCrossBlockSelectionWarning(): void {
+  showNoesisWarning(
+    "Noesis can highlight one block at a time.",
+    "Select either the paragraph or the displayed logic block, then save that highlight separately.",
+  );
+}
+
+function renderHighlight(
+  root: HTMLElement,
+  highlight: GuestHighlight,
+): boolean {
   if (!highlight.quote.trim()) {
     return false;
   }
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let node = walker.nextNode() as Text | null;
-  let seen = 0;
+  const { text, anchors } = collectHighlightableText(root);
+  const position = findQuotePosition(text, highlight);
+  const normalizedQuote = getNormalizedQuote(highlight.quote);
+  const range =
+    position === undefined
+      ? null
+      : createTextRange(anchors, position, normalizedQuote.length);
 
-  while (node) {
-    const parent = node.parentElement;
-    if (
-      parent &&
-      isInsideSepTextRegion(parent) &&
-      !parent.closest(".noesis-highlight, .noesis-selection-card")
-    ) {
-      let index = node.data.indexOf(highlight.quote);
-      while (index >= 0) {
-        if (
-          highlight.occurrenceIndex === undefined ||
-          seen === highlight.occurrenceIndex
-        ) {
-          highlightTextNode(node, index, highlight.quote.length, highlight);
-          return true;
-        }
-
-        seen += 1;
-        index = node.data.indexOf(highlight.quote, index + highlight.quote.length);
-      }
-    }
-
-    node = walker.nextNode() as Text | null;
+  if (!range) {
+    return false;
   }
 
-  return false;
+  if (!rangeFitsSingleHighlightBlock(range)) {
+    return false;
+  }
+
+  try {
+    highlightRange(range, highlight);
+  } catch {
+    return false;
+  }
+  return true;
 }
 
-function isNoesisUiElement(element: HTMLElement): boolean {
+async function renderStoredHighlights(
+  root: HTMLElement,
+  slug: string,
+): Promise<number> {
+  clearHighlightCard();
+  clearRenderedHighlights();
+  const highlights = await getGuestHighlights(slug);
+  const unresolvedCount = highlights.filter(
+    (highlight) => !renderHighlight(root, highlight),
+  ).length;
+  showAnchorWarning(unresolvedCount);
+  return unresolvedCount;
+}
+
+function isNoesisUiElement(element: Element): boolean {
   return Boolean(
     element.closest(
       ".noesis-selection-card, .noesis-highlight-card, .noesis-highlight",
@@ -601,15 +889,24 @@ function showSelectionCard(
 
   card.addEventListener("click", (event) => {
     event.stopPropagation();
-    if ((event.target as HTMLElement).dataset.action === "cancel") {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    if (target.dataset.action === "cancel") {
       clearSelectionCard();
     }
   });
 
   card.addEventListener("submit", (event) => {
     event.preventDefault();
-    const note = new FormData(card).get("note")?.toString().trim();
-    const color = new FormData(card).get("color")?.toString() as HighlightColor;
+    const formData = new FormData(card);
+    const note = formData.get("note")?.toString().trim();
+    const colorValue = formData.get("color");
+    const color =
+      typeof colorValue === "string" && isHighlightColor(colorValue)
+        ? colorValue
+        : undefined;
     onSave(quote, note || undefined, color || defaultColor, anchor);
     clearSelectionCard();
   });
@@ -641,23 +938,36 @@ export default defineContentScript({
     setHighlightsVisible(guestState.settings.highlightsVisible);
 
     let savePositionTimer: number | undefined;
+    const saveCurrentReadingPosition = () =>
+      saveGuestReadingPosition({
+        slug: entry.slug,
+        url: entry.url,
+        scrollY: Math.round(window.scrollY),
+        scrollRatio: getScrollRatio(),
+        updatedAt: new Date().toISOString(),
+      });
 
     window.addEventListener(
       "scroll",
       () => {
         window.clearTimeout(savePositionTimer);
         savePositionTimer = window.setTimeout(() => {
-          void saveGuestReadingPosition({
-            slug: entry.slug,
-            url: entry.url,
-            scrollY: Math.round(window.scrollY),
-            scrollRatio: getScrollRatio(),
-            updatedAt: new Date().toISOString(),
-          });
+          void saveCurrentReadingPosition();
         }, 500);
       },
       { passive: true },
     );
+
+    const flushReadingPosition = () => {
+      window.clearTimeout(savePositionTimer);
+      void saveCurrentReadingPosition();
+    };
+    window.addEventListener("pagehide", flushReadingPosition);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        flushReadingPosition();
+      }
+    });
 
     browser.runtime.onMessage.addListener(
       (message: NoesisMessage): Promise<SaveEntryResponse> | undefined => {
@@ -668,6 +978,11 @@ export default defineContentScript({
 
         if (message.type === "noesis:scroll-to-highlight") {
           scrollToHighlight(message.highlightId);
+          return undefined;
+        }
+
+        if (message.type === "noesis:refresh-highlights") {
+          void renderStoredHighlights(textRoot, entry.slug);
           return undefined;
         }
 
@@ -690,7 +1005,10 @@ export default defineContentScript({
     );
 
     document.addEventListener("pointerdown", (event) => {
-      const target = event.target as HTMLElement;
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
 
       if (!target.closest(".noesis-selection-card")) {
         clearSelectionCard();
@@ -705,7 +1023,10 @@ export default defineContentScript({
     });
 
     document.addEventListener("mouseup", (event) => {
-      const target = event.target as HTMLElement;
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
       if (isNoesisUiElement(target)) {
         return;
       }
@@ -720,6 +1041,12 @@ export default defineContentScript({
         return;
       }
 
+      if (!selectionFitsSingleHighlightBlock(selection)) {
+        selection.removeAllRanges();
+        showCrossBlockSelectionWarning();
+        return;
+      }
+
       showSelectionCard(
         selection,
         textRoot,
@@ -731,7 +1058,8 @@ export default defineContentScript({
             note,
             url: entry.url,
             color,
-            textPosition: findTextPosition(textRoot, quote),
+            textPosition:
+              anchor.textPosition ?? findTextPosition(textRoot, quote),
             ...anchor,
           }).then((highlight) => {
             guestState = {
@@ -751,18 +1079,12 @@ export default defineContentScript({
     });
 
     const savedPosition = await getGuestReadingPosition(entry.slug);
-    if (savedPosition?.scrollY) {
-      window.requestAnimationFrame(() => {
-        window.scrollTo({ top: savedPosition.scrollY });
-      });
+    if (savedPosition) {
+      restoreReadingPosition(savedPosition);
     }
 
-    const highlights = await getGuestHighlights(entry.slug);
     window.requestAnimationFrame(() => {
-      const unresolvedCount = highlights.filter(
-        (highlight) => !renderHighlight(textRoot, highlight),
-      ).length;
-      showAnchorWarning(unresolvedCount);
+      void renderStoredHighlights(textRoot, entry.slug);
     });
   },
 });

@@ -1,58 +1,253 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-import type { GuestHighlight, GuestState, HighlightColor } from "./guest-storage";
-import { writeGuestState } from "./guest-storage";
+import type {
+  PostgrestError,
+  SupabaseClient,
+  User,
+} from "@supabase/supabase-js";
+import type {
+  UserHighlightSyncRow,
+  UserReadingPositionSyncRow,
+  UserSavedEntrySyncRow,
+} from "noesis-types";
+import type {
+  DeletedGuestHighlight,
+  GuestHighlight,
+  GuestState,
+  HighlightColor,
+} from "./guest-storage";
+import { readGuestState, updateGuestState } from "./guest-storage";
 
 export type SyncSummary = {
   savedEntries: number;
   readingPositions: number;
   highlights: number;
+  deletedHighlights?: number;
   pulledEntries?: number;
   pulledReadingPositions?: number;
   pulledHighlights?: number;
 };
 
-type RemoteSavedEntry = {
-  entry_slug: string;
-  title: string;
-  source_url: string;
-  saved_at: string;
-};
+export type RemoteSavedEntry = UserSavedEntrySyncRow;
+export type RemoteReadingPosition = UserReadingPositionSyncRow;
+export type RemoteHighlight = UserHighlightSyncRow;
 
-type RemoteReadingPosition = {
-  entry_slug: string;
-  source_url: string;
-  scroll_y: number;
-  scroll_ratio: number;
-  updated_at: string;
-};
-
-type RemoteHighlight = {
+type SyncedHighlightIdentity = {
   id: string;
-  local_id: string | null;
-  entry_slug: string;
-  source_url: string;
-  quote: string;
-  note: string | null;
-  color: string | null;
-  text_position: number | null;
-  occurrence_index: number | null;
-  prefix: string | null;
-  suffix: string | null;
-  created_at: string;
-  updated_at: string;
+  local_id: string;
 };
 
-const highlightColors = new Set(["yellow", "green", "blue", "pink", "purple"]);
-
-function toHighlightColor(color: string | null): HighlightColor | undefined {
-  return color && highlightColors.has(color) ? (color as HighlightColor) : undefined;
+function throwIfError(error: PostgrestError | null): void {
+  if (error) {
+    throw error;
+  }
 }
 
-export async function syncGuestStateToSupabase(
+const highlightColors = {
+  yellow: true,
+  green: true,
+  blue: true,
+  pink: true,
+  purple: true,
+} satisfies Record<HighlightColor, true>;
+
+function isHighlightColor(value: string): value is HighlightColor {
+  return value in highlightColors;
+}
+
+function toHighlightColor(color: string | null): HighlightColor | undefined {
+  if (!color) {
+    return undefined;
+  }
+
+  return isHighlightColor(color) ? color : undefined;
+}
+
+function getDeletedHighlights(state: GuestState): DeletedGuestHighlight[] {
+  return Object.values(state.deletedHighlights ?? {});
+}
+
+async function syncDeletedHighlightsToSupabase(
+  supabase: SupabaseClient,
+  user: User,
+  state: GuestState,
+): Promise<number> {
+  const deletedHighlights = getDeletedHighlights(state);
+  const localIds = deletedHighlights.map((highlight) => highlight.localId);
+  const remoteIds = deletedHighlights
+    .map((highlight) => highlight.remoteId)
+    .filter((id): id is string => Boolean(id));
+
+  if (deletedHighlights.length === 0) {
+    return 0;
+  }
+
+  if (localIds.length > 0) {
+    const { error } = await supabase
+      .from("user_highlights")
+      .delete()
+      .eq("user_id", user.id)
+      .in("local_id", localIds);
+
+    throwIfError(error);
+  }
+
+  if (remoteIds.length > 0) {
+    const { error } = await supabase
+      .from("user_highlights")
+      .delete()
+      .eq("user_id", user.id)
+      .in("id", remoteIds);
+
+    throwIfError(error);
+  }
+
+  await updateGuestState((latestState) => {
+    for (const highlight of deletedHighlights) {
+      delete latestState.deletedHighlights[highlight.localId];
+    }
+  });
+
+  return deletedHighlights.length;
+}
+
+async function storeRemoteHighlightIds(
+  identities: SyncedHighlightIdentity[] | null,
+): Promise<void> {
+  if (!identities || identities.length === 0) {
+    return;
+  }
+
+  const remoteIdByLocalId = new Map(
+    identities.map((identity) => [identity.local_id, identity.id]),
+  );
+  await updateGuestState((latestState) => {
+    for (const highlights of Object.values(latestState.highlights)) {
+      for (const highlight of highlights) {
+        const remoteId = remoteIdByLocalId.get(highlight.id);
+        if (remoteId && highlight.remoteId !== remoteId) {
+          highlight.remoteId = remoteId;
+        }
+      }
+    }
+  });
+}
+
+function isRemoteNewer(
+  remoteUpdatedAt: string | null | undefined,
+  localUpdatedAt: string | null | undefined,
+): boolean {
+  if (!localUpdatedAt) {
+    return true;
+  }
+  if (!remoteUpdatedAt) {
+    return false;
+  }
+
+  return (
+    new Date(remoteUpdatedAt).getTime() > new Date(localUpdatedAt).getTime()
+  );
+}
+
+export function mergeRemoteSavedEntries(
+  state: GuestState,
+  entries: RemoteSavedEntry[],
+): void {
+  for (const entry of entries) {
+    const localEntry = state.savedEntries[entry.entry_slug];
+    if (localEntry && !isRemoteNewer(entry.saved_at, localEntry.savedAt)) {
+      continue;
+    }
+
+    state.savedEntries[entry.entry_slug] = {
+      slug: entry.entry_slug,
+      title: entry.title,
+      url: entry.source_url,
+      savedAt: entry.saved_at,
+    };
+  }
+}
+
+export function mergeRemoteReadingPositions(
+  state: GuestState,
+  positions: RemoteReadingPosition[],
+): void {
+  for (const position of positions) {
+    const localPosition = state.readingPositions[position.entry_slug];
+    if (
+      localPosition &&
+      !isRemoteNewer(position.updated_at, localPosition.updatedAt)
+    ) {
+      continue;
+    }
+
+    state.readingPositions[position.entry_slug] = {
+      slug: position.entry_slug,
+      url: position.source_url,
+      scrollY: position.scroll_y,
+      scrollRatio: position.scroll_ratio,
+      updatedAt: position.updated_at,
+    };
+  }
+}
+
+export function toLocalHighlight(highlight: RemoteHighlight): GuestHighlight {
+  return {
+    id: highlight.local_id ?? highlight.id,
+    remoteId: highlight.id,
+    slug: highlight.entry_slug,
+    quote: highlight.quote,
+    note: highlight.note ?? undefined,
+    url: highlight.source_url,
+    color: toHighlightColor(highlight.color),
+    textPosition: highlight.text_position ?? undefined,
+    occurrenceIndex: highlight.occurrence_index ?? undefined,
+    prefix: highlight.prefix ?? undefined,
+    suffix: highlight.suffix ?? undefined,
+    createdAt: highlight.created_at,
+    updatedAt: highlight.updated_at,
+  };
+}
+
+export function mergeRemoteHighlights(
+  state: GuestState,
+  highlights: RemoteHighlight[],
+): void {
+  for (const highlight of highlights) {
+    const localHighlight = toLocalHighlight(highlight);
+    if (state.deletedHighlights[localHighlight.id]) {
+      continue;
+    }
+
+    const existing = state.highlights[highlight.entry_slug] ?? [];
+    const existingHighlight = existing.find(
+      (item) => item.id === localHighlight.id,
+    );
+    if (
+      existingHighlight &&
+      !isRemoteNewer(localHighlight.updatedAt, existingHighlight.updatedAt)
+    ) {
+      if (localHighlight.remoteId && !existingHighlight.remoteId) {
+        existingHighlight.remoteId = localHighlight.remoteId;
+      }
+      continue;
+    }
+
+    state.highlights[highlight.entry_slug] = [
+      ...existing.filter((item) => item.id !== localHighlight.id),
+      localHighlight,
+    ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+}
+
+async function syncGuestStateToSupabase(
   supabase: SupabaseClient,
   user: User,
   state: GuestState,
 ): Promise<SyncSummary> {
+  const deletedHighlights = await syncDeletedHighlightsToSupabase(
+    supabase,
+    user,
+    state,
+  );
   const savedEntries = Object.values(state.savedEntries);
   const readingPositions = Object.values(state.readingPositions);
   const highlights = Object.values(state.highlights).flat();
@@ -70,9 +265,7 @@ export async function syncGuestStateToSupabase(
       { onConflict: "user_id,entry_slug" },
     );
 
-    if (error) {
-      throw error;
-    }
+    throwIfError(error);
   }
 
   if (readingPositions.length > 0) {
@@ -88,120 +281,81 @@ export async function syncGuestStateToSupabase(
       { onConflict: "user_id,entry_slug" },
     );
 
-    if (error) {
-      throw error;
-    }
+    throwIfError(error);
   }
 
   if (highlights.length > 0) {
-    const { error } = await supabase.from("user_highlights").upsert(
-      highlights.map((highlight) => ({
-        user_id: user.id,
-        local_id: highlight.id,
-        entry_slug: highlight.slug,
-        source_url: highlight.url,
-        quote: highlight.quote,
-        note: highlight.note ?? null,
-        color: highlight.color ?? null,
-        text_position: highlight.textPosition ?? null,
-        occurrence_index: highlight.occurrenceIndex ?? null,
-        prefix: highlight.prefix ?? null,
-        suffix: highlight.suffix ?? null,
-        created_at: highlight.createdAt,
-        updated_at: highlight.updatedAt,
-      })),
-      { onConflict: "user_id,local_id" },
-    );
+    const { data, error } = await supabase
+      .from("user_highlights")
+      .upsert(
+        highlights.map((highlight) => ({
+          user_id: user.id,
+          local_id: highlight.id,
+          entry_slug: highlight.slug,
+          source_url: highlight.url,
+          quote: highlight.quote,
+          note: highlight.note ?? null,
+          color: highlight.color ?? null,
+          text_position: highlight.textPosition ?? null,
+          occurrence_index: highlight.occurrenceIndex ?? null,
+          prefix: highlight.prefix ?? null,
+          suffix: highlight.suffix ?? null,
+          created_at: highlight.createdAt,
+          updated_at: highlight.updatedAt,
+        })),
+        { onConflict: "user_id,local_id" },
+      )
+      .select("id,local_id")
+      .overrideTypes<SyncedHighlightIdentity[], { merge: false }>();
 
-    if (error) {
-      throw error;
-    }
+    throwIfError(error);
+
+    await storeRemoteHighlightIds(data);
   }
 
   return {
     savedEntries: savedEntries.length,
     readingPositions: readingPositions.length,
     highlights: highlights.length,
+    deletedHighlights,
   };
 }
 
-export async function pullSupabaseStateIntoGuestState(
+async function pullSupabaseStateIntoGuestState(
   supabase: SupabaseClient,
-  state: GuestState,
+  user: User,
 ): Promise<GuestState & { summary: SyncSummary }> {
   const [entriesResult, positionsResult, highlightsResult] = await Promise.all([
     supabase
       .from("user_saved_entries")
-      .select("entry_slug,title,source_url,saved_at"),
+      .select("entry_slug,title,source_url,saved_at")
+      .eq("user_id", user.id)
+      .overrideTypes<RemoteSavedEntry[], { merge: false }>(),
     supabase
       .from("user_reading_positions")
-      .select("entry_slug,source_url,scroll_y,scroll_ratio,updated_at"),
+      .select("entry_slug,source_url,scroll_y,scroll_ratio,updated_at")
+      .eq("user_id", user.id)
+      .overrideTypes<RemoteReadingPosition[], { merge: false }>(),
     supabase
       .from("user_highlights")
       .select(
         "id,local_id,entry_slug,source_url,quote,note,color,text_position,occurrence_index,prefix,suffix,created_at,updated_at",
-      ),
+      )
+      .eq("user_id", user.id)
+      .overrideTypes<RemoteHighlight[], { merge: false }>(),
   ]);
 
-  if (entriesResult.error) {
-    throw entriesResult.error;
-  }
-  if (positionsResult.error) {
-    throw positionsResult.error;
-  }
-  if (highlightsResult.error) {
-    throw highlightsResult.error;
-  }
+  throwIfError(entriesResult.error);
+  throwIfError(positionsResult.error);
+  throwIfError(highlightsResult.error);
 
-  const nextState: GuestState = {
-    ...state,
-    savedEntries: { ...state.savedEntries },
-    readingPositions: { ...state.readingPositions },
-    highlights: { ...state.highlights },
-  };
+  const nextState = await updateGuestState((latestState) => {
+    mergeRemoteSavedEntries(latestState, entriesResult.data ?? []);
+    mergeRemoteReadingPositions(latestState, positionsResult.data ?? []);
+    mergeRemoteHighlights(latestState, highlightsResult.data ?? []);
 
-  for (const entry of (entriesResult.data ?? []) as RemoteSavedEntry[]) {
-    nextState.savedEntries[entry.entry_slug] = {
-      slug: entry.entry_slug,
-      title: entry.title,
-      url: entry.source_url,
-      savedAt: entry.saved_at,
-    };
-  }
-
-  for (const position of (positionsResult.data ?? []) as RemoteReadingPosition[]) {
-    nextState.readingPositions[position.entry_slug] = {
-      slug: position.entry_slug,
-      url: position.source_url,
-      scrollY: position.scroll_y,
-      scrollRatio: position.scroll_ratio,
-      updatedAt: position.updated_at,
-    };
-  }
-
-  for (const highlight of (highlightsResult.data ?? []) as RemoteHighlight[]) {
-    const localHighlight: GuestHighlight = {
-      id: highlight.local_id ?? highlight.id,
-      slug: highlight.entry_slug,
-      quote: highlight.quote,
-      note: highlight.note ?? undefined,
-      url: highlight.source_url,
-      color: toHighlightColor(highlight.color),
-      textPosition: highlight.text_position ?? undefined,
-      occurrenceIndex: highlight.occurrence_index ?? undefined,
-      prefix: highlight.prefix ?? undefined,
-      suffix: highlight.suffix ?? undefined,
-      createdAt: highlight.created_at,
-      updatedAt: highlight.updated_at,
-    };
-    const existing = nextState.highlights[highlight.entry_slug] ?? [];
-    nextState.highlights[highlight.entry_slug] = [
-      ...existing.filter((item) => item.id !== localHighlight.id),
-      localHighlight,
-    ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }
-
-  await writeGuestState(nextState);
+    return latestState;
+  });
 
   return {
     ...nextState,
@@ -209,6 +363,7 @@ export async function pullSupabaseStateIntoGuestState(
       savedEntries: 0,
       readingPositions: 0,
       highlights: 0,
+      deletedHighlights: 0,
       pulledEntries: entriesResult.data?.length ?? 0,
       pulledReadingPositions: positionsResult.data?.length ?? 0,
       pulledHighlights: highlightsResult.data?.length ?? 0,
@@ -222,7 +377,7 @@ export async function syncGuestStateWithSupabase(
   state: GuestState,
 ): Promise<SyncSummary> {
   const pushed = await syncGuestStateToSupabase(supabase, user, state);
-  const pulled = await pullSupabaseStateIntoGuestState(supabase, state);
+  const pulled = await pullSupabaseStateIntoGuestState(supabase, user);
 
   return {
     ...pushed,

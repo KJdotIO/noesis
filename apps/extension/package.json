@@ -2,7 +2,7 @@
   "name": "noesis-extension",
   "description": "SEP reading companion for saving, highlighting, and resuming entries.",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -12,6 +12,7 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
+    "test": "bun test",
     "qa:smoke": "bun run scripts/qa-smoke.ts",
     "postinstall": "wxt prepare"
   },
@@ -21,9 +22,11 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.4",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.1.5",
+    "noesis-types": "file:../../packages/noesis-types",
     "typescript": "^5.9.3",
     "wxt": "^0.20.18"
   }
